@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>agent4live — UI dev</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #0b0b0f;
+        color: #888;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 32px 24px 48px;
+        gap: 20px;
+      }
+      h1 {
+        font-size: 13px;
+        font-weight: 500;
+        color: #666;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .fixtures {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: center;
+        max-width: 640px;
+      }
+      .fixtures button {
+        background: #161616;
+        border: 1px solid #262626;
+        color: #888;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 11px;
+        cursor: pointer;
+        font-family: inherit;
+        transition: all 0.12s ease;
+      }
+      .fixtures button:hover {
+        border-color: #444;
+        color: #ccc;
+      }
+      .fixtures button.active {
+        background: #2ecc71;
+        color: #0a0a0a;
+        border-color: #2ecc71;
+        font-weight: 500;
+      }
+      .frame-wrap {
+        width: 360px;
+        height: 170px;
+        border: 1px solid #262626;
+        border-radius: 6px;
+        overflow: hidden;
+        position: relative;
+        margin-top: 8px;
+      }
+      .frame-wrap::after {
+        content: '360 × 170 (jweb)';
+        position: absolute;
+        top: -22px;
+        right: 0;
+        font-size: 10px;
+        color: #444;
+        letter-spacing: 0.04em;
+      }
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        display: block;
+        background: #1a1a1a;
+      }
+      .reload-flash {
+        position: fixed;
+        top: 24px;
+        right: 24px;
+        background: #2ecc71;
+        color: #0a0a0a;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 500;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+        letter-spacing: 0.04em;
+      }
+      .reload-flash.show {
+        opacity: 1;
+      }
+      details {
+        max-width: 640px;
+        width: 100%;
+        margin-top: 4px;
+      }
+      summary {
+        cursor: pointer;
+        font-size: 11px;
+        color: #666;
+        padding: 6px 0;
+        user-select: none;
+      }
+      summary:hover {
+        color: #aaa;
+      }
+      pre {
+        background: #161616;
+        border: 1px solid #262626;
+        border-radius: 4px;
+        padding: 12px;
+        font-size: 10px;
+        line-height: 1.5;
+        color: #aaa;
+        max-height: 340px;
+        overflow: auto;
+        font-family: 'SF Mono', Monaco, Consolas, monospace;
+      }
+      .hint {
+        font-size: 10px;
+        color: #444;
+        letter-spacing: 0.04em;
+        margin-top: -12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>agent4live — UI dev</h1>
+    <div class="hint">edit <code>server/ui/state.js</code> · auto-reloads</div>
+
+    <div id="fixtures" class="fixtures"></div>
+
+    <div class="frame-wrap">
+      <iframe id="frame" src="/ui"></iframe>
+    </div>
+
+    <details>
+      <summary>State JSON (active fixture)</summary>
+      <pre id="state-json">loading…</pre>
+    </details>
+
+    <div id="reload-flash" class="reload-flash">reloaded</div>
+
+    <script>
+      const fixturesEl = document.getElementById('fixtures');
+      const frame = document.getElementById('frame');
+      const stateJson = document.getElementById('state-json');
+      const flash = document.getElementById('reload-flash');
+
+      async function loadFixtures() {
+        const res = await fetch('/dev/fixtures');
+        const { active, names } = await res.json();
+        fixturesEl.textContent = '';
+        names.forEach((name) => {
+          const b = document.createElement('button');
+          b.textContent = name;
+          if (name === active) b.classList.add('active');
+          b.onclick = () => switchFixture(name);
+          fixturesEl.appendChild(b);
+        });
+      }
+
+      async function switchFixture(name) {
+        await fetch('/dev/fixture/' + encodeURIComponent(name), { method: 'POST' });
+        reloadFrame();
+        loadFixtures();
+      }
+
+      function reloadFrame() {
+        frame.src = '/ui?t=' + Date.now();
+      }
+
+      async function pollState() {
+        try {
+          const res = await fetch('/ui/state');
+          stateJson.textContent = JSON.stringify(await res.json(), null, 2);
+        } catch (_) {}
+        setTimeout(pollState, 1000);
+      }
+
+      function showFlash() {
+        flash.classList.add('show');
+        setTimeout(() => flash.classList.remove('show'), 800);
+      }
+
+      const evt = new EventSource('/dev/events');
+      evt.addEventListener('reload', () => {
+        reloadFrame();
+        loadFixtures();
+        showFlash();
+      });
+      evt.addEventListener('full-reload', () => {
+        location.reload();
+      });
+
+      loadFixtures();
+      pollState();
+    </script>
+  </body>
+</html>

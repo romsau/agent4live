@@ -1,0 +1,32 @@
+# Auto-release on tag push.
+#
+# When a tag like `v1.2.3` is pushed, this workflow creates a GitHub Release
+# named after the tag, attaches `dist/agent4live.amxd` as a downloadable asset,
+# and auto-generates release notes from the commits/PRs since the previous tag.
+#
+# The .amxd is NOT built here — Max for Live's "Freeze Device" requires the
+# Max GUI on macOS, which can't run on a Linux runner. The expected workflow:
+#   1. Author runs `npm run build` locally → produces dist/staging/.
+#   2. Author opens dist/staging/agent4live.amxd in Max → Freeze Device → Save As → dist/agent4live.amxd.
+#   3. Author commits the frozen .amxd, bumps version, tags, pushes tag.
+#   4. This workflow attaches the committed .amxd to the new Release.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/agent4live.amxd
+          generate_release_notes: true

@@ -1,0 +1,29 @@
+#!/usr/bin/env sh
+# Pre-commit gate. Fail-fast at the first non-zero exit.
+#
+# 1. lint-staged  — prettier --write + eslint --fix sur les fichiers staged
+#                   eslint-plugin-jsdoc enforce les commentaires JSDoc
+# 2. eslint .     — lint global sur tout le repo (--max-warnings 0).
+#                   lint-staged ne voit que les fichiers staged ; sans cette
+#                   étape, une régression dans un fichier non-touché reste
+#                   invisible jusqu'à ce qu'un autre commit le re-stage.
+# 3. tests        — jest --coverage avec seuil 100 % statements/branches/functions/lines
+# 4. build        — concat-lom (régénère app/lom_router.js) + esbuild (staging)
+#                   re-stage app/lom_router.js si concat l'a modifié
+#
+# Bypass d'urgence : git commit --no-verify (fortement déconseillé).
+
+set -e
+
+echo "→ lint-staged (prettier + eslint sur staged)"
+npx lint-staged
+
+echo "→ eslint . (lint global, --max-warnings 0)"
+npx eslint . --max-warnings 0
+
+echo "→ tests + coverage 100 %"
+npm test --silent
+
+echo "→ build (concat-lom + esbuild + staging)"
+npm run build --silent
+git add app/lom_router.js

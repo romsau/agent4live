@@ -1,0 +1,10 @@
+.DS_Store
+.claude/
+.idea/
+.vscode/
+coverage/
+dist/staging/
+docs/api/
+node_modules/
+ROADMAP.md
+app/python_scripts/__init__.pyc

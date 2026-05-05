@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# Valide le format du message via commitlint (Conventional Commits).
+# Types acceptés : feat | fix | refactor | test | chore | docs | style | perf | ci | build | revert
+# Format : <type>(<scope>): <subject>
+
+npx --no-install commitlint --edit "$1"

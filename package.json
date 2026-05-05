@@ -1,0 +1,48 @@
+{
+  "name": "agent4live",
+  "version": "1.0.0",
+  "description": "MCP server embedded in a Max for Live device — exposes Ableton Live to MCP-compatible agents",
+  "private": true,
+  "license": "MIT",
+  "author": "Romain Sauvez <romain.sauvez@gmail.com>",
+  "main": "app/server/index.js",
+  "scripts": {
+    "build": "node tools/build/build.js",
+    "dev": "node tools/dev-server/server.js",
+    "dev:lom": "node tools/build/watch-lom.js",
+    "test": "jest --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "lint:docs": "node tools/build/lint-docs.js",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
+    "docs": "node tools/build/gen-docs.js",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^20.5.3",
+    "@commitlint/config-conventional": "^20.5.3",
+    "@eslint/js": "^9.18.0",
+    "documentation": "^14.0.3",
+    "esbuild": "^0.25.12",
+    "eslint": "^9.18.0",
+    "eslint-plugin-jsdoc": "^62.9.0",
+    "globals": "^15.14.0",
+    "husky": "^9.1.7",
+    "jest": "^30.3.0",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.4.0"
+  },
+  "lint-staged": {
+    "*.js": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,md,yml,yaml,html}": [
+      "prettier --write"
+    ]
+  }
+}

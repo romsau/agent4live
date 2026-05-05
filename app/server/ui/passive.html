@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        margin: 0;
+        background: #222;
+        color: #fff;
+        font:
+          11px/1.5 'Andale Mono',
+          monospace;
+        height: 100vh;
+        padding: 6px;
+        box-sizing: border-box;
+      }
+      .card {
+        height: 100%;
+        background: #2a2a2a;
+        border-radius: 4px;
+        padding: 12px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+      h1 {
+        font-size: 9px;
+        text-transform: uppercase;
+        color: #e74c3c;
+        letter-spacing: 0.6px;
+        margin: 0 0 10px;
+      }
+      p {
+        margin: 0;
+        color: #ddd;
+      }
+      strong {
+        color: #fff;
+      }
+      #version {
+        position: absolute;
+        right: 8px;
+        bottom: 4px;
+        color: #555;
+        font-size: 8px;
+        letter-spacing: 0.5px;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Duplicate device</h1>
+      <p>agent4live is already running on <strong>__TRACK_NAME__</strong>.</p>
+    </div>
+    <div id="version">v__VERSION__</div>
+  </body>
+</html>

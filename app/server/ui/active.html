@@ -1,0 +1,879 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #222222;
+        color: #ccc;
+        font-family: 'Courier New', monospace;
+        font-size: 10px;
+        padding: 6px;
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      /* Discreet bottom-right version footer — overlays content, doesn't push
+         layout. z-index above the modals (which sit at 10/11) so the version
+         is visible on every screen, including the consent + setup cascade. */
+      #version {
+        position: absolute;
+        right: 8px;
+        bottom: 4px;
+        color: #555;
+        font-size: 8px;
+        font-family: 'Courier New', monospace;
+        letter-spacing: 0.5px;
+        pointer-events: none;
+        z-index: 100;
+      }
+      .hdr {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+      .main {
+        flex: 1;
+        display: flex;
+        gap: 6px;
+        min-height: 0;
+      }
+      .pnl {
+        flex: 1;
+        min-width: 0;
+        background: #111;
+        border-radius: 4px;
+        padding: 8px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .pnl.narrow {
+        flex: 0.6;
+      }
+      .pnl.wide {
+        flex: 1.6;
+      }
+      #agent-card {
+        cursor: pointer;
+      }
+      #agent-card:hover {
+        background: #1a1a1a;
+      }
+      .lbl {
+        font-size: 9px;
+        color: #838383;
+        letter-spacing: 0.5px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      #s1,
+      #s2,
+      #s3 {
+        margin-left: auto;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #log {
+        flex: 1;
+        background: #111;
+        border-radius: 4px;
+        padding: 8px;
+        overflow-y: auto;
+        min-height: 0;
+      }
+      #log.empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px;
+      }
+      #log .empty-msg {
+        color: #838383;
+        font-size: 10px;
+        text-align: center;
+        line-height: 1.4;
+      }
+      #no-agents {
+        flex: 1;
+        background: #111;
+        border-radius: 4px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        align-items: center;
+        justify-content: center;
+        min-height: 0;
+      }
+      /* Higher specificity than the bare #id rule so [hidden] actually hides. */
+      #no-agents[hidden],
+      #log[hidden] {
+        display: none;
+      }
+      #no-agents .msg {
+        color: #838383;
+        font-size: 10px;
+        text-align: center;
+        line-height: 1.4;
+        max-width: 90%;
+      }
+      #no-agents .links {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px 16px;
+        width: 100%;
+        max-width: 220px;
+      }
+      #no-agents .links a {
+        color: #3498db;
+        text-decoration: none;
+        font-size: 10px;
+        text-align: center;
+        padding: 2px 0;
+      }
+      #no-agents .links a:hover {
+        text-decoration: underline;
+        color: #5dade2;
+      }
+      #no-agents .refresh {
+        background: transparent;
+        border: 1px solid #444;
+        color: #838383;
+        padding: 5px 14px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-family: 'Courier New', monospace;
+        cursor: pointer;
+        letter-spacing: 0.5px;
+        margin-top: 4px;
+      }
+      #no-agents .refresh:hover {
+        border-color: #838383;
+        color: #ccc;
+      }
+      #no-agents .refresh:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+      /* Cascade modals — same chrome for install / installed / configure /
+         consent. Only one is non-hidden at a time. */
+      #modal-install,
+      #modal-installed,
+      #modal-configure {
+        position: fixed;
+        inset: 0;
+        background: #1a1a1a;
+        z-index: 11;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 6px;
+        font-size: 10px;
+      }
+      #modal-install[hidden],
+      #modal-installed[hidden],
+      #modal-configure[hidden] {
+        display: none;
+      }
+      /* The configure step has more chrome (3-step list) — keep it
+         vertically centred but give a touch more padding on top + bottom. */
+      #modal-configure {
+        padding: 18px 12px;
+        gap: 6px;
+      }
+      #modal-configure .sub {
+        white-space: nowrap;
+        font-size: 8px;
+      }
+      #modal-install h1,
+      #modal-installed h1,
+      #modal-configure h1 {
+        font-size: 13px;
+        color: #ccc;
+        font-weight: bold;
+        letter-spacing: 0.5px;
+        margin-bottom: 6px;
+      }
+      #modal-install .sub,
+      #modal-installed .sub,
+      #modal-configure .sub {
+        color: #838383;
+        font-size: 11px;
+        line-height: 1.3;
+        text-align: center;
+        max-width: 95%;
+        margin-bottom: 6px;
+      }
+      #modal-install .sub strong,
+      #modal-installed .sub strong,
+      #modal-configure .sub strong {
+        color: #ccc;
+      }
+      #modal-configure .steps {
+        list-style: decimal inside;
+        font-size: 11px;
+        color: #ccc;
+        line-height: 1.5;
+        background: #111;
+        padding: 6px 10px;
+        border-radius: 3px;
+        width: 100%;
+        margin-bottom: 6px;
+      }
+      #modal-configure .steps em {
+        color: #6a93b3;
+        font-style: normal;
+      }
+      #modal-install .info,
+      #modal-configure .info {
+        color: #e74c3c;
+        font-size: 8px;
+        line-height: 1.3;
+        background: #2a1414;
+        border: 1px solid #5a2c2c;
+        border-radius: 3px;
+        padding: 4px 6px;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 6px;
+      }
+      #modal-install .actions,
+      #modal-configure .actions {
+        display: flex;
+        justify-content: center;
+        width: 100%;
+      }
+      #modal-install .actions button,
+      #modal-configure .actions button {
+        background: transparent;
+        border: 1px solid #444;
+        color: #838383;
+        padding: 6px 18px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-family: 'Courier New', monospace;
+        cursor: pointer;
+        letter-spacing: 0.5px;
+      }
+      #modal-install .actions button:hover:not(:disabled),
+      #modal-configure .actions button:hover:not(:disabled) {
+        border-color: #838383;
+        color: #ccc;
+      }
+      #modal-install .actions button:disabled,
+      #modal-configure .actions button:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+      /* Welcome / consent modal — covers the entire device viewport. */
+      #consent {
+        position: fixed;
+        inset: 0;
+        background: #1a1a1a;
+        z-index: 10;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 6px;
+        font-size: 10px;
+      }
+      #consent[hidden] {
+        display: none;
+      }
+      #consent h1 {
+        font-size: 13px;
+        color: #ccc;
+        font-weight: bold;
+        letter-spacing: 0.5px;
+      }
+      #consent .sub {
+        color: #838383;
+        font-size: 11px;
+        line-height: 1.3;
+        margin-bottom: 4px;
+        text-align: center;
+      }
+      #consent .opts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        width: 100%;
+        margin-top: 6px;
+        margin-bottom: 14px;
+      }
+      #consent .cell {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: #111;
+        border-radius: 3px;
+        padding: 10px 8px;
+      }
+      #consent .cell.disabled label {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      #consent .cell label {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+      }
+      #consent .cell input[type='checkbox'] {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 1px solid #555;
+        background: #1a1a1a;
+        margin: 0;
+        flex-shrink: 0;
+        cursor: pointer;
+        transition: all 0.1s;
+      }
+      #consent .cell input[type='checkbox']:hover:not(:disabled) {
+        border-color: #aaa;
+      }
+      #consent .cell input[type='checkbox']:checked {
+        background: #2ecc71;
+        border-color: #2ecc71;
+        box-shadow: inset 0 0 0 2px #1a1a1a;
+      }
+      #consent .cell input[type='checkbox']:disabled {
+        cursor: not-allowed;
+      }
+      #consent .extlink {
+        color: #6a93b3;
+        text-decoration: none;
+        font-size: 11px;
+        padding: 0 2px;
+      }
+      #consent .extlink:hover {
+        color: #5dade2;
+      }
+      #consent .info {
+        color: #6a93b3;
+        font-size: 8px;
+        line-height: 1.3;
+        background: #111;
+        border-radius: 3px;
+        padding: 4px 6px;
+        text-align: center;
+        width: 100%;
+      }
+      #consent .hint {
+        color: #ccc;
+        font-size: 11px;
+        line-height: 1.3;
+        font-style: italic;
+        text-align: center;
+        margin-top: 4px;
+      }
+      #consent .actions {
+        display: flex;
+        margin-top: auto;
+      }
+      #consent .actions button {
+        flex: 1;
+        background: #2c5e2e;
+        border: 1px solid #2ecc71;
+        color: #ccc;
+        padding: 5px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-family: 'Courier New', monospace;
+        cursor: pointer;
+        letter-spacing: 0.5px;
+      }
+      #consent .actions button:hover:not(:disabled) {
+        background: #2ecc71;
+        color: #111;
+      }
+      #consent .actions button:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+      .ll {
+        line-height: 14px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .ll.err {
+        white-space: pre-wrap;
+        overflow: visible;
+        text-overflow: clip;
+        word-break: break-word;
+      }
+      .g {
+        color: #2ecc71;
+      }
+      .r {
+        color: #e74c3c;
+      }
+      .b {
+        color: #3498db;
+      }
+      .o {
+        color: #f39c12;
+      }
+      .d {
+        color: #838383;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      Loading overlay — covers the whole UI until the first /ui/state poll
+      succeeds and update() has rendered. Inline styles only so it shows up
+      before any external CSS could load. Same look as the Loading data URL
+      pushed by emitLoadingUi() in node, so the transition is seamless.
+    -->
+    <div
+      id="loading-overlay"
+      style="
+        position: fixed;
+        inset: 0;
+        background: #222;
+        color: #838383;
+        font-family: 'Courier New', monospace;
+        font-size: 10px;
+        letter-spacing: 0.5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 99999;
+      "
+    >
+      Loading...
+    </div>
+    <div id="modal-install" hidden>
+      <h1>One-time setup</h1>
+      <div class="sub">
+        Clicking below installs: a Python script (Ableton User Library), a local MCP server
+        (127.0.0.1), and a skill for Claude Code if you select it. One-time consent.
+      </div>
+      <div class="info" id="install-error" hidden></div>
+      <div class="actions">
+        <button id="install-btn">I AGREE — INSTALL</button>
+      </div>
+    </div>
+    <div id="modal-installed" hidden>
+      <h1>Almost there</h1>
+      <div class="sub">
+        The script is installed. <strong>Quit Ableton Live and relaunch it</strong> to finish setup.
+        agent4live will continue automatically when Live restarts.
+      </div>
+    </div>
+    <div id="modal-configure" hidden>
+      <h1>Activate the script in Live</h1>
+      <ol class="steps">
+        <li>Open Live <em>Preferences</em> → <em>Link Tempo MIDI</em></li>
+        <li>
+          In the <em>Control Surfaces</em> table, on a free row pick <strong>agent4live</strong>
+        </li>
+        <li>Leave Input and Output set to <em>None</em></li>
+      </ol>
+      <div class="info" id="configure-error" hidden></div>
+      <div class="actions">
+        <button id="recheck-btn">I'VE DONE IT — RECHECK</button>
+      </div>
+    </div>
+    <div id="consent" hidden>
+      <div class="sub">Pick which agents can talk to this device:</div>
+      <div class="opts" id="consent-opts"></div>
+      <div class="hint">If your agent CLI is already running, restart it once after picking.</div>
+    </div>
+    <div class="hdr">
+      <div class="pnl narrow">
+        <span class="lbl">MCP</span>
+        <span id="s1" class="row"></span>
+      </div>
+      <div class="pnl">
+        <span class="lbl">LIVEAPI</span>
+        <span id="s2" class="row"></span>
+      </div>
+      <div class="pnl wide" id="agent-card" title="Edit agent consent">
+        <span class="lbl">AGENT</span>
+        <span id="s3" class="row"></span>
+      </div>
+    </div>
+    <div class="main">
+      <div id="log"></div>
+      <div id="no-agents" hidden>
+        <div class="msg">No agent detected on this machine.<br />Install one to get started:</div>
+        <div class="links">
+          <a href="https://claude.com/claude-code" target="_blank" rel="noopener">Claude Code</a>
+          <a href="https://github.com/openai/codex" target="_blank" rel="noopener">Codex</a>
+          <a href="https://github.com/google-gemini/gemini-cli" target="_blank" rel="noopener"
+            >Gemini CLI</a
+          >
+          <a href="https://opencode.ai" target="_blank" rel="noopener">OpenCode</a>
+        </div>
+        <button class="refresh" id="refresh-btn">REFRESH</button>
+      </div>
+    </div>
+
+    <script>
+      // Build a <span class="..."> wrapping the given text. Used for every
+      // colorized fragment in the status / log rows.
+      function createSpan(className, text) {
+        var span = document.createElement('span');
+        span.className = className;
+        span.textContent = text;
+        return span;
+      }
+      function createTextNode(text) {
+        return document.createTextNode(text);
+      }
+
+      var agentDefs = [
+        ['claudeCode', 'Claude Code', 'https://claude.com/claude-code'],
+        ['codex', 'Codex', 'https://github.com/openai/codex'],
+        ['gemini', 'Gemini CLI', 'https://github.com/google-gemini/gemini-cli'],
+        ['opencode', 'OpenCode', 'https://opencode.ai'],
+      ];
+
+      // Modal state. `manualOpen` re-shows the consent modal post-firstBoot
+      // when the user clicks the AGENT card. `latestState` is the freshest
+      // /ui/state snapshot, used both to render the modal on demand and to
+      // know whether we're still in firstBoot.
+      var manualOpen = false;
+      var latestState = null;
+      // After a successful POST /companion/install we lock the UI on the
+      // "Restart Live" screen until the device reboots. The flag resets on
+      // reload (full page refresh after Live restart) so it's transient.
+      var justInstalled = false;
+
+      // Render the welcome modal. Disable cells for agents not detected on
+      // this machine. Each checkbox auto-saves its single-agent consent on
+      // change — once any toggle persists, /ui/state.firstBoot flips false
+      // and the modal hides itself on the next poll.
+      function renderConsentModal(agents) {
+        var optsEl = document.getElementById('consent-opts');
+        optsEl.textContent = '';
+        agentDefs.forEach(function (def) {
+          var key = def[0];
+          var label = def[1];
+          var url = def[2];
+          var info = agents[key] || {};
+          var cell = document.createElement('div');
+          cell.className = 'cell' + (info.detected ? '' : ' disabled');
+          var lbl = document.createElement('label');
+          var cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.disabled = !info.detected;
+          // Always render unchecked — both at firstBoot (no consent yet) and
+          // when the user re-opens the modal via the AGENT card. Pre-selecting
+          // the current agent is visually noisy: the user is here to switch
+          // or clear, not re-affirm.
+          cb.checked = false;
+          cb.addEventListener('change', function () {
+            cb.disabled = true;
+            // Single-agent rule: checking one auto-unchecks the others.
+            // Unchecking the last one falls through to "no agent registered".
+            if (cb.checked) {
+              var allCbs = document.querySelectorAll('#consent-opts input[type=checkbox]');
+              allCbs.forEach(function (other) {
+                if (other !== cb) other.checked = false;
+              });
+            }
+            // Batch POST so the server flips everything atomically.
+            var body = {};
+            agentDefs.forEach(function (d) {
+              body[d[0]] = false;
+            });
+            if (cb.checked) body[key] = true;
+            fetch('/preferences', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            })
+              .catch(function () {})
+              .then(function () {
+                cb.disabled = !info.detected;
+                // Close the manual-reopen modal as soon as the change persists.
+                // (firstBoot transitions to false on the next poll anyway.)
+                manualOpen = false;
+                return fetch('/ui/state')
+                  .then(function (r) {
+                    return r.json();
+                  })
+                  .then(update);
+              });
+          });
+          lbl.appendChild(cb);
+          var name = document.createElement('span');
+          name.textContent = label;
+          lbl.appendChild(name);
+          cell.appendChild(lbl);
+          // External install link only for agents NOT detected — they're the
+          // ones the user might still want to grab. Detected = already on the
+          // machine, no need to advertise the install page.
+          if (!info.detected) {
+            var link = document.createElement('a');
+            link.href = url;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.className = 'extlink';
+            link.textContent = '↗';
+            link.title = 'Install ' + label;
+            cell.appendChild(link);
+          }
+          optsEl.appendChild(cell);
+        });
+      }
+
+      // Re-render the whole UI from a /ui/state snapshot. Cheap because
+      // the device's jweb is small.
+      function update(state) {
+        latestState = state;
+        // Version footer — set once per render (state.version is constant
+        // for the device's lifetime, but cheap enough to re-set every tick).
+        var versionEl = document.getElementById('version');
+        if (versionEl) versionEl.textContent = state.version ? 'v' + state.version : '';
+        // MCP server status (status pushed right by .pu #s1{margin-left:auto}).
+        // Gray for fallback `---` — red is reserved for explicit error states.
+        var mcpStatusEl = document.getElementById('s1');
+        mcpStatusEl.textContent = '';
+        mcpStatusEl.appendChild(createSpan(state.connected ? 'g' : 'd', '●'));
+        mcpStatusEl.appendChild(
+          createSpan(state.connected ? 'g' : 'd', state.connected ? 'ok' : '---'),
+        );
+
+        // LiveAPI status
+        var liveApiStatusEl = document.getElementById('s2');
+        liveApiStatusEl.textContent = '';
+        liveApiStatusEl.appendChild(createSpan(state.liveApiOk ? 'g' : 'd', '●'));
+        liveApiStatusEl.appendChild(
+          createSpan(state.liveApiOk ? 'g' : 'd', state.liveApiOk ? state.latencyMs + 'ms' : '---'),
+        );
+
+        // Selected agent — name of the (single) consented agent, or "none".
+        // The mutex rule in renderConsentModal guarantees at most one consent.
+        var agents = state.agents || {};
+        var s3El = document.getElementById('s3');
+        s3El.textContent = '';
+        var consented = agentDefs.find(function (d) {
+          return agents[d[0]] && agents[d[0]].consented;
+        });
+        if (consented) {
+          s3El.appendChild(createSpan('g', '●'));
+          s3El.appendChild(createSpan('g', consented[1]));
+        } else {
+          s3El.appendChild(createSpan('d', '●'));
+          s3El.appendChild(createSpan('d', 'none'));
+        }
+
+        // Cascade: companion install → companion configure → consent.
+        // At most one modal is visible at a time. Order matches the boot
+        // sequence checks in the device: script presence → ping → agent.
+        var modalInstall = document.getElementById('modal-install');
+        var modalInstalled = document.getElementById('modal-installed');
+        var modalConfigure = document.getElementById('modal-configure');
+        var consentEl = document.getElementById('consent');
+
+        // Default: hide everything ; below we re-show whichever applies.
+        modalInstall.hidden = true;
+        modalInstalled.hidden = !justInstalled; // shown only after a successful POST /companion/install
+        modalConfigure.hidden = true;
+        consentEl.hidden = true;
+
+        // companionStatus = null means the device just booted and
+        // updateCompanionStatus() hasn't returned yet. Skip the modal cascade
+        // entirely until we have a real value, otherwise users with a fully
+        // configured setup briefly see Modal A flash before the real state
+        // arrives and the UI snaps to the default view.
+        if (state.companionStatus !== null && state.companionStatus !== undefined) {
+          var companion = state.companionStatus;
+          if (!justInstalled && !companion.scriptInstalled) {
+            modalInstall.hidden = false;
+          } else if (!justInstalled && !companion.pingOk) {
+            modalConfigure.hidden = false;
+          } else if (state.firstBoot || manualOpen) {
+            renderConsentModal(agents);
+            consentEl.hidden = false;
+          } else {
+            manualOpen = false; // reset flag once the modal is hidden
+          }
+        }
+
+        // Show install card instead of log if no agent was detected at all.
+        var anyDetected = agentDefs.some(function (def) {
+          return (agents[def[0]] || {}).detected;
+        });
+        document.getElementById('log').hidden = !anyDetected;
+        document.getElementById('no-agents').hidden = anyDetected;
+
+        // Log
+        var logEl = document.getElementById('log');
+        logEl.textContent = '';
+        var entries = state.logs || [];
+        if (entries.length === 0) {
+          logEl.className = 'empty';
+          var emptyMsg = document.createElement('div');
+          emptyMsg.className = 'empty-msg';
+          emptyMsg.textContent = 'Waiting for the first agent call...';
+          logEl.appendChild(emptyMsg);
+        } else {
+          logEl.className = '';
+          entries.forEach(function (entry) {
+            var row = document.createElement('div');
+            row.className = entry.isError ? 'll err' : 'll';
+            row.appendChild(createSpan('d', entry.ts));
+            row.appendChild(createTextNode(' '));
+            row.appendChild(createSpan('b', entry.tool));
+            row.appendChild(createTextNode(' '));
+            row.appendChild(
+              createSpan(
+                entry.isError ? 'r' : 'g',
+                entry.isError ? entry.result : '→ ' + entry.result,
+              ),
+            );
+            logEl.appendChild(row);
+          });
+          logEl.scrollTop = logEl.scrollHeight;
+        }
+      }
+
+      // Install button (Modal A) — POST /companion/install, lock the UI on
+      // the "Restart Live" screen on success or show error in red on failure.
+      document.getElementById('install-btn').addEventListener('click', function () {
+        var btn = this;
+        var errEl = document.getElementById('install-error');
+        btn.disabled = true;
+        btn.textContent = 'INSTALLING…';
+        errEl.hidden = true;
+        fetch('/companion/install', { method: 'POST' })
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (data) {
+            if (data && data.ok) {
+              justInstalled = true;
+              // Force a re-render with current state to swap to "installed" modal.
+              if (latestState) update(latestState);
+            } else {
+              errEl.textContent = (data && data.error) || 'Install failed.';
+              errEl.hidden = false;
+              btn.disabled = false;
+              btn.textContent = 'INSTALL';
+            }
+          })
+          .catch(function (err) {
+            errEl.textContent = err.message || 'Install request failed.';
+            errEl.hidden = false;
+            btn.disabled = false;
+            btn.textContent = 'INSTALL';
+          });
+      });
+
+      // Recheck button (Modal B) — re-ping the companion. If still ko after
+      // a brief delay, surface a "still not detected" hint. The poll loop
+      // automatically updates the modal when companionStatus.pingOk flips true.
+      document.getElementById('recheck-btn').addEventListener('click', function () {
+        var btn = this;
+        var errEl = document.getElementById('configure-error');
+        btn.disabled = true;
+        btn.textContent = 'CHECKING…';
+        errEl.hidden = true;
+        fetch('/companion/recheck', { method: 'POST' })
+          .then(function (r) {
+            // Defensive: if the server replied with non-JSON (race, crash mid-
+            // response…), don't surface the raw parse error — fall through to
+            // the short fixed-length message instead.
+            return r.json().catch(function () {
+              return null;
+            });
+          })
+          .then(function (data) {
+            if (data && data.status && data.status.pingOk) {
+              // Force re-render with the freshly-updated state ; the cascade
+              // logic will hide modal-configure and either show the consent
+              // modal or jump to the normal view.
+              return fetch('/ui/state')
+                .then(function (r) {
+                  return r.json();
+                })
+                .then(update);
+            }
+            errEl.textContent = 'Not loaded. Check Control Surfaces.';
+            errEl.hidden = false;
+          })
+          .catch(function () {
+            errEl.textContent = 'Recheck failed. Try again.';
+            errEl.hidden = false;
+          })
+          .then(function () {
+            btn.disabled = false;
+            btn.textContent = "I'VE DONE IT — RECHECK";
+          });
+      });
+
+      // AGENT card → toggle the consent modal. No-op while still in firstBoot
+      // (the modal is mandatory then ; clicking would just be a no-op since
+      // the overlay already covers everything anyway).
+      document.getElementById('agent-card').addEventListener('click', function () {
+        if (latestState && latestState.firstBoot) return;
+        manualOpen = !manualOpen;
+        var consentEl = document.getElementById('consent');
+        if (manualOpen) {
+          renderConsentModal((latestState && latestState.agents) || {});
+          consentEl.hidden = false;
+        } else {
+          consentEl.hidden = true;
+        }
+      });
+
+      document.getElementById('refresh-btn').addEventListener('click', function () {
+        var button = this;
+        button.disabled = true;
+        button.textContent = '...';
+        fetch('/detect', { method: 'POST' })
+          .catch(function () {})
+          .then(function () {
+            setTimeout(function () {
+              button.disabled = false;
+              button.textContent = 'REFRESH';
+            }, 600);
+          });
+      });
+
+      (function poll() {
+        fetch('/ui/state')
+          .then(function (response) {
+            return response.json();
+          })
+          .then(update)
+          .then(function () {
+            // First successful render: drop the Loading overlay so the real
+            // UI becomes visible. Subsequent renders are no-ops here.
+            var overlay = document.getElementById('loading-overlay');
+            if (overlay) overlay.remove();
+          })
+          .catch(function () {})
+          .then(function () {
+            setTimeout(poll, 500);
+          });
+      })();
+    </script>
+    <div id="version"></div>
+  </body>
+</html>
