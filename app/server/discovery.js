@@ -57,17 +57,51 @@ function loadOrGenerateToken() {
   return crypto.randomBytes(TOKEN_BYTES).toString('hex');
 }
 
+// uiKey → CLI binary name. Drives both `detectAgents` (boot-time probe of all
+// 4) and the per-agent helpers below (e.g. detectClaude).
+const AGENT_BINS = {
+  claudeCode: 'claude',
+  codex: 'codex',
+  gemini: 'gemini',
+  opencode: 'opencode',
+};
+
+/**
+ * Probe a single agent's binary on this machine and update its uiState entry.
+ * Used by detectAgents() at boot and detectClaude() for the legacy single-probe
+ * code path that callers still expect.
+ *
+ * @param {string} uiKey - Key in uiState.agents (e.g. 'claudeCode').
+ * @param {string} binName - CLI binary name to probe (e.g. 'claude').
+ */
+function detectAgent(uiKey, binName) {
+  const binaryPath = resolveBin(binName);
+  if (binaryPath) {
+    uiState.agents[uiKey].detected = true;
+    log(`${binName} found at ${binaryPath}`);
+  } else {
+    log(`${binName} not found in PATH`);
+  }
+}
+
 /**
  * Probe whether the `claude` CLI is on this machine. Updates uiState so
  * the UI can light its Claude card green at boot.
  */
 function detectClaude() {
-  const binaryPath = resolveBin('claude');
-  if (binaryPath) {
-    uiState.agents.claudeCode.detected = true;
-    log(`claude found at ${binaryPath}`);
-  } else {
-    log('claude not found in PATH');
+  detectAgent('claudeCode', 'claude');
+}
+
+/**
+ * Probe all 4 supported agent CLIs (Claude / Codex / Gemini / OpenCode) and
+ * update their uiState entries. Called once at boot so the consent modal
+ * shows the actual install state of every agent — without this, only Claude
+ * was probed and Codex/Gemini/OpenCode appeared grayed-out + linking to
+ * GitHub even when the user had them installed.
+ */
+function detectAgents() {
+  for (const [uiKey, binName] of Object.entries(AGENT_BINS)) {
+    detectAgent(uiKey, binName);
   }
 }
 
@@ -308,8 +342,11 @@ function runCmd(binaryPath, args, opts) {
  * @returns {string|null} Absolute path to the binary, or null if not found.
  */
 function resolveBin(name) {
+  // Probe well-known absolute install paths via fs.accessSync — instant and
+  // immune to cold-start subprocess timeouts (running `<bin> --version` at
+  // boot can exceed SUBPROCESS_TIMEOUT_MS when the OS hasn't warmed the
+  // binary yet, leaving the agent silently undetected).
   const candidates = [
-    name,
     path.join(os.homedir(), '.local', 'bin', name),
     path.join(os.homedir(), '.opencode', 'bin', name),
     path.join(os.homedir(), '.bun', 'bin', name),
@@ -320,14 +357,13 @@ function resolveBin(name) {
   ];
   for (const candidate of candidates) {
     try {
-      execFileSync(candidate, ['--version'], {
-        encoding: 'utf8',
-        timeout: SUBPROCESS_TIMEOUT_MS,
-      });
+      fs.accessSync(candidate, fs.constants.X_OK);
       return candidate;
     } catch (_) {}
   }
-  // Fallback: ask the user's login shell.
+  // Fallback: ask the user's login shell — picks up custom paths from .zshrc
+  // / asdf / mise / etc. The shell call itself is cheap (<200ms) compared to
+  // spawning the target binary, so the timeout here is rarely a concern.
   try {
     const shell = process.env.SHELL || '/bin/zsh';
     const output = execFileSync(shell, ['-lc', `command -v ${name}`], {
@@ -335,7 +371,7 @@ function resolveBin(name) {
       timeout: SUBPROCESS_TIMEOUT_MS,
     }).trim();
     if (output && output.startsWith('/')) {
-      execFileSync(output, ['--version'], { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS });
+      fs.accessSync(output, fs.constants.X_OK);
       return output;
     }
   } catch (_) {}
@@ -645,6 +681,7 @@ function unregisterOne(agent) {
 }
 
 module.exports = {
+  detectAgents,
   detectClaude,
   setupDiscovery,
   teardownDiscovery,

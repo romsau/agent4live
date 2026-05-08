@@ -27,7 +27,7 @@ function register(server) {
   defineTool(server, {
     name: 'get_control_surfaces',
     description:
-      'List the control-surface slots from Live\'s Link/MIDI Preferences. Returns JSON: [{index, type_name, is_connected}, ...]. There are typically 6-7 slots; empty slots have type_name="None" and is_connected=false. Connected slots show the script class name (e.g. "Push2", "Komplete_Kontrol_A", "Launchpad", "MaxForLive"). Use this to discover what hardware the user has set up before adapting suggestions or inspecting controls via get_control_surface_controls.',
+      'List the control-surface slots from Live\'s Tempo & MIDI Preferences. Returns JSON: [{index, type_name, is_connected}, ...]. There are typically 6-7 slots; empty slots have type_name="None" and is_connected=false. Connected slots show the script class name (e.g. "Push2", "Komplete_Kontrol_A", "Launchpad", "MaxForLive"). Use this to discover what hardware the user has set up before adapting suggestions or inspecting controls via get_control_surface_controls.',
     handler: () => lomGetControlSurfaces(),
     successText: (_args, json) => String(json),
   });

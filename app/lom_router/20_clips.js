@@ -27,7 +27,7 @@ function lom_get_clip_notes(id, trackIndex, slotIndex, fromPitch, pitchSpan, fro
       parseInt(fromPitch),
       parseInt(pitchSpan),
       parseFloat(fromTime),
-      parseFloat(timeSpan),
+      parseFloat(timeSpan)
     );
     return _dictReturnToJson(raw);
   });

@@ -1,6 +1,6 @@
 {
   "name": "agent4live",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server embedded in a Max for Live device — exposes Ableton Live to MCP-compatible agents",
   "private": true,
   "license": "MIT",

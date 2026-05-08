@@ -15,7 +15,7 @@ function companionUnreachableError() {
   return new Error(
     'Browser API requires the agent4live Python companion. ' +
       'Install via `node tools/companion/install.js`, restart Live, and assign ' +
-      '"agent4live" in Preferences → Link/Tempo/MIDI → Control Surface.',
+      '"agent4live" in Preferences → Tempo & MIDI → Control Surface.',
   );
 }
 

@@ -93,7 +93,7 @@ describe('lom_replace_clip_notes', () => {
         1,
         0,
         0,
-        '[{"pitch":60,"time":0,"duration":1,"velocity":100,"mute":0}]',
+        '[{"pitch":60,"time":0,"duration":1,"velocity":100,"mute":0}]'
       );
     } finally {
       restore();
@@ -422,7 +422,7 @@ describe('lom_duplicate_notes_by_id', () => {
         1,
         0,
         0,
-        '{"note_ids":[1],"destination_time":4,"transposition_amount":2}',
+        '{"note_ids":[1],"destination_time":4,"transposition_amount":2}'
       );
     } finally {
       restore();
@@ -445,7 +445,7 @@ describe('lom_duplicate_notes_by_id', () => {
         1,
         0,
         0,
-        '{"note_ids":[1],"destination_time":null,"transposition_amount":null}',
+        '{"note_ids":[1],"destination_time":null,"transposition_amount":null}'
       );
     } finally {
       restore();
@@ -486,7 +486,7 @@ describe('lom_add_notes_to_clip', () => {
         1,
         0,
         0,
-        '[{"pitch":60,"start_time":0,"duration":1,"velocity":100,"mute":0,"probability":0.8,"velocity_deviation":5,"release_velocity":50}]',
+        '[{"pitch":60,"start_time":0,"duration":1,"velocity":100,"mute":0,"probability":0.8,"velocity_deviation":5,"release_velocity":50}]'
       );
     } finally {
       restore();

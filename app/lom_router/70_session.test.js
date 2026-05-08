@@ -285,7 +285,7 @@ describe('lom_get_selection', () => {
       global.LiveAPI = original;
     }
     expect(JSON.parse(outlet.mock.calls.at(-1)[4]).detail_clip_path).toBe(
-      'live_set tracks 5 clip_slots 2 clip',
+      'live_set tracks 5 clip_slots 2 clip'
     );
   });
 

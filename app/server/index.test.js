@@ -45,7 +45,7 @@ function setupMocks() {
     buildUiHtml: jest.fn(() => '<html>active</html>'),
     buildPassiveUiHtml: jest.fn((track) => `<html>passive ${track}</html>`),
     emitLoadingUi: jest.fn(),
-    detectClaude: jest.fn(),
+    detectAgents: jest.fn(),
     setupDiscovery: jest.fn(() => 'tok-1'),
     teardownDiscovery: jest.fn(() => Promise.resolve()),
     setupConsentedClients: jest.fn(() => Promise.resolve()),
@@ -98,7 +98,7 @@ function withMocks(mocks) {
     emitLoadingUi: mocks.emitLoadingUi,
   }));
   jest.doMock('./discovery', () => ({
-    detectClaude: mocks.detectClaude,
+    detectAgents: mocks.detectAgents,
     setupDiscovery: mocks.setupDiscovery,
     teardownDiscovery: mocks.teardownDiscovery,
     setupConsentedClients: mocks.setupConsentedClients,
@@ -190,11 +190,11 @@ afterEach(() => {
 });
 
 describe('boot', () => {
-  it('detects claude, logs Node.js, builds the UI, calls listen', () => {
+  it('detects all agents, logs Node.js, builds the UI, calls listen', () => {
     const mocks = setupMocks();
     withMocks(mocks);
     jest.isolateModules(() => require('./index'));
-    expect(mocks.detectClaude).toHaveBeenCalled();
+    expect(mocks.detectAgents).toHaveBeenCalled();
     expect(mocks.buildUiHtml).toHaveBeenCalled();
     expect(mocks.fakeServer.listen).toHaveBeenCalledWith(12345, '127.0.0.1', expect.any(Function));
   });
@@ -204,9 +204,9 @@ describe('boot', () => {
     withMocks(mocks);
     jest.isolateModules(() => require('./index'));
     expect(mocks.emitLoadingUi).toHaveBeenCalled();
-    // Loading must come before detectClaude (and therefore before any HTTP setup).
+    // Loading must come before detectAgents (and therefore before any HTTP setup).
     expect(mocks.emitLoadingUi.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.detectClaude.mock.invocationCallOrder[0],
+      mocks.detectAgents.mock.invocationCallOrder[0],
     );
   });
 
@@ -415,12 +415,12 @@ describe('HTTP routes', () => {
 
   it('/detect POST runs detect + discovery + clients, returns ok', () => {
     const { mocks, handler } = bootAndGetHandler();
-    mocks.detectClaude.mockClear();
+    mocks.detectAgents.mockClear();
     mocks.setupDiscovery.mockClear();
     mocks.setupConsentedClients.mockClear();
     const { req, res } = reqres('/detect', 'POST');
     handler(req, res);
-    expect(mocks.detectClaude).toHaveBeenCalled();
+    expect(mocks.detectAgents).toHaveBeenCalled();
     expect(mocks.setupDiscovery).toHaveBeenCalledWith(12345);
     expect(mocks.setupConsentedClients).toHaveBeenCalled();
     expect(JSON.parse(res.chunks[0])).toEqual({ ok: true });

@@ -384,7 +384,7 @@ function lom_get_clip_notes(id, trackIndex, slotIndex, fromPitch, pitchSpan, fro
       parseInt(fromPitch),
       parseInt(pitchSpan),
       parseFloat(fromTime),
-      parseFloat(timeSpan),
+      parseFloat(timeSpan)
     );
     return _dictReturnToJson(raw);
   });
@@ -939,7 +939,7 @@ function _setDeviceIoDictProp(id, trackIndex, deviceIndex, ioType, ioIndex, prop
         have.push(JSON.stringify(avail[j].identifier) + ' (' + avail[j].display_name + ')');
       }
       throw new Error(
-        'No ' + propName + ' with identifier "' + idStr + '". Available: ' + have.join(', '),
+        'No ' + propName + ' with identifier "' + idStr + '". Available: ' + have.join(', ')
       );
     }
     var d = new Dict();
@@ -1498,12 +1498,12 @@ function lom_set_drum_chain_props(
   chainIdx,
   inNote,
   outNote,
-  chokeGroup,
+  chokeGroup
 ) {
   _handle(id, function () {
     var c = new LiveAPI(
       null,
-      _drumPadPath(track, devIdx, padIdx) + ' chains ' + parseInt(chainIdx),
+      _drumPadPath(track, devIdx, padIdx) + ' chains ' + parseInt(chainIdx)
     );
     var n;
     n = parseInt(inNote);
@@ -1721,7 +1721,7 @@ function lom_set_track_routing(id, trackIndex, propName, identifier) {
         have.push(JSON.stringify(avail[j].identifier) + ' (' + avail[j].display_name + ')');
       }
       throw new Error(
-        'No ' + prop + ' with identifier "' + idStr + '". Available: ' + have.join(', '),
+        'No ' + prop + ' with identifier "' + idStr + '". Available: ' + have.join(', ')
       );
     }
 
@@ -2067,7 +2067,7 @@ function lom_get_scale(id) {
 
 /**
  * Outlet JSON `[{index, type_name, is_connected}, ...]` for the active
- * control surfaces (hardware controllers mapped in Link/MIDI Preferences).
+ * control surfaces (hardware controllers mapped in Tempo & MIDI Preferences).
  * Empty slots have type_name = 'None' or empty.
  *
  * @param {number} id
@@ -2106,7 +2106,7 @@ function lom_get_control_surface_controls(id, surfaceIndex) {
     return JSON.stringify(
       names.map(function (n) {
         return String(n);
-      }),
+      })
     );
   });
 }

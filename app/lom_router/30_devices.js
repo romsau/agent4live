@@ -123,7 +123,7 @@ function _setDeviceIoDictProp(id, trackIndex, deviceIndex, ioType, ioIndex, prop
         have.push(JSON.stringify(avail[j].identifier) + ' (' + avail[j].display_name + ')');
       }
       throw new Error(
-        'No ' + propName + ' with identifier "' + idStr + '". Available: ' + have.join(', '),
+        'No ' + propName + ' with identifier "' + idStr + '". Available: ' + have.join(', ')
       );
     }
     var d = new Dict();

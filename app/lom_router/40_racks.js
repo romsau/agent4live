@@ -428,12 +428,12 @@ function lom_set_drum_chain_props(
   chainIdx,
   inNote,
   outNote,
-  chokeGroup,
+  chokeGroup
 ) {
   _handle(id, function () {
     var c = new LiveAPI(
       null,
-      _drumPadPath(track, devIdx, padIdx) + ' chains ' + parseInt(chainIdx),
+      _drumPadPath(track, devIdx, padIdx) + ' chains ' + parseInt(chainIdx)
     );
     var n;
     n = parseInt(inNote);

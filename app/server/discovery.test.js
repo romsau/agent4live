@@ -34,6 +34,28 @@ const HOME = os.homedir();
 const ENDPOINT_FILE = path.join(HOME, '.agent4live-ableton-mcp', 'endpoint.json');
 const OPENCODE_CONFIG = path.join(HOME, '.config', 'opencode', 'opencode.json');
 
+// Helper: simulate that every probed path is on disk + executable. Replaces
+// the old `cp.execFileSync.mockReturnValue('bin\n')` pattern that doubled as
+// "binary found" before resolveBin started using fs.accessSync. Tests still
+// mock cp.execFileSync to drive the actual `mcp add` / `mcp remove` calls.
+function mockBinFound() {
+  fs.accessSync.mockImplementation(() => {});
+}
+
+// Helper: simulate that ONLY the listed binaries are on disk. Path-suffix
+// match (e.g. mockBinFoundFor('opencode') matches /Users/x/.local/bin/opencode
+// and /opt/homebrew/bin/opencode). Used by per-agent register* tests that
+// need just one binary visible to resolveBin.
+function mockBinFoundFor(...binNames) {
+  fs.accessSync.mockImplementation((p) => {
+    const s = String(p);
+    if (binNames.some((n) => s.endsWith('/' + n))) return;
+    const err = new Error('ENOENT');
+    err.code = 'ENOENT';
+    throw err;
+  });
+}
+
 // Helper: a fully-consented prefs object — used to drive setupConsentedClients
 // in the same scenarios the legacy setupAllClients used to cover.
 const ALL_CONSENTED = {
@@ -47,6 +69,15 @@ const ALL_CONSENTED = {
 
 beforeEach(() => {
   jest.resetAllMocks();
+  // Default: no binary on disk. Tests that simulate a present binary override
+  // with their own fs.accessSync.mockImplementation. Without this default, the
+  // auto-mocked fs.accessSync returns undefined (treated as "binary exists"),
+  // which would make resolveBin always succeed regardless of the test scenario.
+  fs.accessSync.mockImplementation(() => {
+    const err = new Error('ENOENT');
+    err.code = 'ENOENT';
+    throw err;
+  });
   for (const agent of Object.keys(uiState.agents)) {
     uiState.agents[agent].detected = false;
     uiState.agents[agent].registered = false;
@@ -66,7 +97,7 @@ const discovery = require('./discovery');
 
 describe('detectClaude', () => {
   it('marks claudeCode detected when claude bin resolves', () => {
-    cp.execFileSync.mockReturnValue('claude 1.0.0\n');
+    mockBinFound();
     discovery.detectClaude();
     expect(uiState.agents.claudeCode.detected).toBe(true);
   });
@@ -78,6 +109,53 @@ describe('detectClaude', () => {
     discovery.detectClaude();
     expect(uiState.agents.claudeCode.detected).toBe(false);
     expect(log).toHaveBeenCalledWith('claude not found in PATH');
+  });
+});
+
+describe('detectAgents', () => {
+  it('marks all 4 agents detected when their binaries exist', () => {
+    mockBinFound();
+    discovery.detectAgents();
+    expect(uiState.agents.claudeCode.detected).toBe(true);
+    expect(uiState.agents.codex.detected).toBe(true);
+    expect(uiState.agents.gemini.detected).toBe(true);
+    expect(uiState.agents.opencode.detected).toBe(true);
+  });
+
+  it('only marks agents whose binary actually resolves', () => {
+    // Only `claude` is on disk ; codex/gemini/opencode all fail.
+    fs.accessSync.mockImplementation((p) => {
+      if (typeof p === 'string' && p.endsWith('/claude')) return;
+      const err = new Error('ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    });
+    cp.execFileSync.mockImplementation(() => {
+      throw new Error('not found');
+    });
+    discovery.detectAgents();
+    expect(uiState.agents.claudeCode.detected).toBe(true);
+    expect(uiState.agents.codex.detected).toBe(false);
+    expect(uiState.agents.gemini.detected).toBe(false);
+    expect(uiState.agents.opencode.detected).toBe(false);
+  });
+
+  it('detects a binary present on disk even if --version subprocess times out', () => {
+    // Cold-start scenario : the binary exists on disk but `--version` would
+    // exceed SUBPROCESS_TIMEOUT_MS, so execFileSync rejects.
+    cp.execFileSync.mockImplementation(() => {
+      const err = new Error('timeout');
+      err.code = 'ETIMEDOUT';
+      throw err;
+    });
+    fs.accessSync.mockImplementation((p) => {
+      if (typeof p === 'string' && p.endsWith('/.local/bin/claude')) return;
+      const err = new Error('ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    });
+    discovery.detectAgents();
+    expect(uiState.agents.claudeCode.detected).toBe(true);
   });
 });
 
@@ -190,6 +268,7 @@ describe('registerWithClaude (via registerOne)', () => {
   });
 
   it('removes stale entry then adds, marks registered on success', () => {
+    mockBinFoundFor('claude');
     fs.existsSync.mockImplementation((p) => p === claudeJson);
     fs.readFileSync.mockReturnValue(
       JSON.stringify({
@@ -203,13 +282,9 @@ describe('registerWithClaude (via registerOne)', () => {
   });
 
   it('logs failure with manual command when add throws (with err.code)', () => {
+    mockBinFoundFor('claude');
     fs.existsSync.mockReturnValue(false);
-    let resolved = false;
     cp.execFileSync.mockImplementation(() => {
-      if (!resolved) {
-        resolved = true;
-        return '';
-      }
       const err = new Error('add failed');
       err.code = 'ETIMEDOUT';
       throw err;
@@ -229,13 +304,9 @@ describe('registerWithClaude (via registerOne)', () => {
   });
 
   it('falls back to err.message when no err.code on add failure', () => {
+    mockBinFoundFor('claude');
     fs.existsSync.mockReturnValue(false);
-    let first = true;
     cp.execFileSync.mockImplementation(() => {
-      if (first) {
-        first = false;
-        return '';
-      }
       throw new Error('plain message');
     });
     discovery.registerOne('claudeCode', URL, TOKEN_HEX);
@@ -264,7 +335,12 @@ describe('setupDiscovery (consent-free, persists endpoint.json only)', () => {
 
 describe('teardownDiscovery + unregister*', () => {
   it('runs all unregister paths and unlinks endpoint.json', async () => {
-    cp.execFileSync.mockReturnValue('bin\n');
+    mockBinFound();
+    // Pre-flag every agent as registered so the success paths can flip them
+    // back to false (otherwise the assertions below would pass trivially).
+    for (const agent of Object.keys(uiState.agents)) {
+      uiState.agents[agent].registered = true;
+    }
     cp.execFile.mockImplementation((bin, args, opts, cb) => {
       cb(null, '', '');
     });
@@ -294,7 +370,7 @@ describe('teardownDiscovery + unregister*', () => {
   });
 
   it('logs when each CLI unregister rejects', async () => {
-    cp.execFileSync.mockReturnValue('bin\n');
+    mockBinFound();
     cp.execFile.mockImplementation((bin, args, opts, cb) => {
       cb(new Error('subprocess failed'), '', '');
     });
@@ -443,10 +519,7 @@ describe('registerOne dispatch', () => {
     jest.useFakeTimers();
     try {
       fs.existsSync.mockReturnValue(false);
-      cp.execFileSync.mockImplementation((bin) => {
-        if (String(bin).endsWith('/codex')) return 'codex\n';
-        throw new Error('not found');
-      });
+      mockBinFoundFor('codex');
       cp.execFile.mockImplementation(() => {});
       const p = discovery.registerOne('codex', 'http://x/mcp', 'tok');
       jest.advanceTimersByTime(11000);
@@ -462,10 +535,7 @@ describe('registerOne dispatch', () => {
     jest.useFakeTimers();
     try {
       fs.existsSync.mockReturnValue(false);
-      cp.execFileSync.mockImplementation((bin) => {
-        if (String(bin).endsWith('/gemini')) return 'gemini\n';
-        throw new Error('not found');
-      });
+      mockBinFoundFor('gemini');
       cp.execFile.mockImplementation(() => {});
       const p = discovery.registerOne('gemini', 'http://x/mcp', 'tok');
       jest.advanceTimersByTime(11000);
@@ -618,10 +688,7 @@ describe('setupConsentedClients + register*', () => {
   });
 
   it('registerOpenCode: writes new entry when no existing config', async () => {
-    cp.execFileSync.mockImplementation((bin) => {
-      if (String(bin).endsWith('/opencode')) return 'opencode\n';
-      throw new Error('not found');
-    });
+    mockBinFoundFor('opencode');
     fs.existsSync.mockReturnValue(false);
     fs.mkdirSync.mockImplementation(() => {});
     fs.writeFileSync.mockImplementation(() => {});
@@ -634,10 +701,7 @@ describe('setupConsentedClients + register*', () => {
   });
 
   it('registerOpenCode: no-op when existing entry matches', async () => {
-    cp.execFileSync.mockImplementation((bin) => {
-      if (String(bin).endsWith('/opencode')) return 'opencode\n';
-      throw new Error('not found');
-    });
+    mockBinFoundFor('opencode');
     fs.existsSync.mockImplementation((p) => p === OPENCODE_CONFIG);
     fs.readFileSync.mockReturnValue(
       JSON.stringify({
@@ -655,10 +719,7 @@ describe('setupConsentedClients + register*', () => {
   });
 
   it('registerOpenCode: ignores non-object JSON, then overwrites', async () => {
-    cp.execFileSync.mockImplementation((bin) => {
-      if (String(bin).endsWith('/opencode')) return 'opencode\n';
-      throw new Error('not found');
-    });
+    mockBinFoundFor('opencode');
     fs.existsSync.mockImplementation((p) => p === OPENCODE_CONFIG);
     fs.readFileSync.mockReturnValue(JSON.stringify(['array']));
     fs.mkdirSync.mockImplementation(() => {});
@@ -668,10 +729,7 @@ describe('setupConsentedClients + register*', () => {
   });
 
   it('registerOpenCode: logs when JSON is malformed', async () => {
-    cp.execFileSync.mockImplementation((bin) => {
-      if (String(bin).endsWith('/opencode')) return 'opencode\n';
-      throw new Error('not found');
-    });
+    mockBinFoundFor('opencode');
     fs.existsSync.mockImplementation((p) => p === OPENCODE_CONFIG);
     fs.readFileSync.mockReturnValue('not-json');
     fs.mkdirSync.mockImplementation(() => {});
@@ -681,10 +739,7 @@ describe('setupConsentedClients + register*', () => {
   });
 
   it('registerOpenCode: logs when write fails', async () => {
-    cp.execFileSync.mockImplementation((bin) => {
-      if (String(bin).endsWith('/opencode')) return 'opencode\n';
-      throw new Error('not found');
-    });
+    mockBinFoundFor('opencode');
     fs.existsSync.mockReturnValue(false);
     fs.mkdirSync.mockImplementation(() => {});
     fs.writeFileSync.mockImplementation(() => {
@@ -703,10 +758,7 @@ describe('registerCodex / registerGemini', () => {
   });
 
   function execFileBin(target) {
-    cp.execFileSync.mockImplementation((bin) => {
-      if (String(bin).includes(target)) return `${target}\n`;
-      throw new Error('not found');
-    });
+    mockBinFoundFor(target);
   }
 
   it('codex: no-op when bin missing — logs "codex not found"', async () => {
@@ -806,23 +858,35 @@ describe('registerCodex / registerGemini', () => {
 });
 
 describe('resolveBin shell fallback', () => {
-  it('finds bin via login shell when direct candidates fail', () => {
-    let calls = 0;
+  // Helper: shell fallback returns the given absolute path AND fs.accessSync
+  // accepts it (so resolveBin returns the path). Default beforeEach already
+  // makes all absolute candidates fail.
+  function mockShellReturns(absPath, expectedShell) {
     cp.execFileSync.mockImplementation((bin, args) => {
-      calls++;
-      if (calls <= 8) throw new Error('not found');
-      if (Array.isArray(args) && args[0] === '-lc') return '/usr/bin/myclaude\n';
-      return 'claude\n';
+      if (Array.isArray(args) && args[0] === '-lc') {
+        if (expectedShell && bin !== expectedShell) {
+          throw new Error(`expected shell ${expectedShell}, got ${bin}`);
+        }
+        return absPath + '\n';
+      }
+      throw new Error('execFileSync called for non-shell candidate');
     });
+    fs.accessSync.mockImplementation((p) => {
+      if (p === absPath) return;
+      const err = new Error('ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    });
+  }
+
+  it('finds bin via login shell when direct candidates fail', () => {
+    mockShellReturns('/usr/bin/myclaude');
     discovery.detectClaude();
     expect(uiState.agents.claudeCode.detected).toBe(true);
   });
 
   it('shell fallback returning relative path is rejected', () => {
-    let calls = 0;
     cp.execFileSync.mockImplementation((bin, args) => {
-      calls++;
-      if (calls <= 8) throw new Error('not found');
       if (Array.isArray(args) && args[0] === '-lc') return 'relative-path\n';
       throw new Error('never reached');
     });
@@ -834,13 +898,7 @@ describe('resolveBin shell fallback', () => {
     const prev = process.env.SHELL;
     process.env.SHELL = '/bin/bash';
     try {
-      let calls = 0;
-      cp.execFileSync.mockImplementation((bin) => {
-        calls++;
-        if (calls <= 8) throw new Error('not found');
-        if (bin === '/bin/bash') return '/x/y/claude\n';
-        return 'claude\n';
-      });
+      mockShellReturns('/x/y/claude', '/bin/bash');
       discovery.detectClaude();
       expect(uiState.agents.claudeCode.detected).toBe(true);
     } finally {
@@ -852,13 +910,7 @@ describe('resolveBin shell fallback', () => {
     const prev = process.env.SHELL;
     delete process.env.SHELL;
     try {
-      let calls = 0;
-      cp.execFileSync.mockImplementation((bin) => {
-        calls++;
-        if (calls <= 8) throw new Error('not found');
-        if (bin === '/bin/zsh') return '/x/y/claude\n';
-        return 'claude\n';
-      });
+      mockShellReturns('/x/y/claude', '/bin/zsh');
       discovery.detectClaude();
       expect(uiState.agents.claudeCode.detected).toBe(true);
     } finally {
@@ -879,10 +931,7 @@ describe('withRegistrationTimeout (via slow registerCodex)', () => {
   });
 
   it('rejects with timeout when registration hangs longer than budget (codex)', async () => {
-    cp.execFileSync.mockImplementation((bin) => {
-      if (String(bin).endsWith('/codex')) return 'codex\n';
-      throw new Error('not found');
-    });
+    mockBinFoundFor('codex');
     cp.execFile.mockImplementation(() => {});
     discovery.setupConsentedClients(ALL_CONSENTED, 'http://x/mcp', 'tok');
     jest.advanceTimersByTime(11000);
@@ -898,10 +947,7 @@ describe('withRegistrationTimeout (via slow registerCodex)', () => {
   });
 
   it('rejects with timeout when registration hangs longer than budget (gemini)', async () => {
-    cp.execFileSync.mockImplementation((bin) => {
-      if (String(bin).endsWith('/gemini')) return 'gemini\n';
-      throw new Error('not found');
-    });
+    mockBinFoundFor('gemini');
     cp.execFile.mockImplementation(() => {});
     discovery.setupConsentedClients(ALL_CONSENTED, 'http://x/mcp', 'tok');
     jest.advanceTimersByTime(11000);
@@ -919,10 +965,7 @@ describe('withRegistrationTimeout (via slow registerCodex)', () => {
 
 describe('registerOpenCode preserves existing $schema and mcp keys', () => {
   it('overwrites just the agent4live entry without recreating $schema or mcp', async () => {
-    cp.execFileSync.mockImplementation((bin) => {
-      if (String(bin).endsWith('/opencode')) return 'opencode\n';
-      throw new Error('not found');
-    });
+    mockBinFoundFor('opencode');
     fs.existsSync.mockImplementation((p) => p === OPENCODE_CONFIG);
     fs.readFileSync.mockReturnValue(
       JSON.stringify({

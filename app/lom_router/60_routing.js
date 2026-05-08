@@ -49,7 +49,7 @@ function lom_set_track_routing(id, trackIndex, propName, identifier) {
         have.push(JSON.stringify(avail[j].identifier) + ' (' + avail[j].display_name + ')');
       }
       throw new Error(
-        'No ' + prop + ' with identifier "' + idStr + '". Available: ' + have.join(', '),
+        'No ' + prop + ' with identifier "' + idStr + '". Available: ' + have.join(', ')
       );
     }
 

@@ -279,7 +279,7 @@ function lom_get_scale(id) {
 
 /**
  * Outlet JSON `[{index, type_name, is_connected}, ...]` for the active
- * control surfaces (hardware controllers mapped in Link/MIDI Preferences).
+ * control surfaces (hardware controllers mapped in Tempo & MIDI Preferences).
  * Empty slots have type_name = 'None' or empty.
  *
  * @param {number} id
@@ -318,7 +318,7 @@ function lom_get_control_surface_controls(id, surfaceIndex) {
     return JSON.stringify(
       names.map(function (n) {
         return String(n);
-      }),
+      })
     );
   });
 }

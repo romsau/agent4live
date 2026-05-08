@@ -26,7 +26,7 @@ const {
   emitLoadingUi,
 } = require('./ui/state');
 const {
-  detectClaude,
+  detectAgents,
   setupDiscovery,
   teardownDiscovery,
   setupConsentedClients,
@@ -62,7 +62,7 @@ const { handleMCP } = require('./mcp/server');
 // uiRender() (active) or emitPassiveUi() (passive).
 emitLoadingUi();
 
-detectClaude();
+detectAgents();
 log(`Node.js ${process.version} / ${process.platform} pid=${process.pid}`);
 
 const UI_HTML = buildUiHtml();
@@ -144,7 +144,7 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
   if (req.url === '/detect' && req.method === 'POST') {
-    detectClaude();
+    detectAgents();
     const tokenAfter = setupDiscovery(PORT);
     if (tokenAfter) uiState.token = tokenAfter;
     // Re-apply consent: only register agents the user has previously consented
