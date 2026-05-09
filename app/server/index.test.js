@@ -492,7 +492,17 @@ describe('Preferences endpoints', () => {
   });
 
   it('POST /preferences batch: registers consented, unregisters revoked, saves', async () => {
-    const { mocks, handler } = bootAndGetHandler();
+    const mocks = setupMocks();
+    // codex starts consented; the batch flips it off → triggers unregisterOne.
+    // claudeCode starts unconsented; the batch flips it on → triggers registerOne.
+    mocks.loadPreferences.mockReturnValue({
+      version: 1,
+      agents: { codex: { consented: true } },
+    });
+    withMocks(mocks);
+    jest.isolateModules(() => require('./index'));
+    mocks.fakeServer.listen.mock.calls[0][2]();
+    const handler = mocks.getHandler();
     mocks.uiState.token = 'tok';
     const { req, res } = reqres('/preferences', 'POST', {
       claudeCode: true,
@@ -506,6 +516,31 @@ describe('Preferences endpoints', () => {
       'tok',
     );
     expect(mocks.unregisterOne).toHaveBeenCalledWith('codex');
+    expect(mocks.savePreferences).toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('POST /preferences batch: skips no-op (false→false and true→true) to avoid subprocess churn', async () => {
+    const mocks = setupMocks();
+    // claudeCode already consented + codex already not consented.
+    // Sending {claudeCode: true, codex: false} should NOT trigger any subprocess.
+    mocks.loadPreferences.mockReturnValue({
+      version: 1,
+      agents: { claudeCode: { consented: true } },
+    });
+    withMocks(mocks);
+    jest.isolateModules(() => require('./index'));
+    mocks.fakeServer.listen.mock.calls[0][2]();
+    const handler = mocks.getHandler();
+    const { req, res } = reqres('/preferences', 'POST', {
+      claudeCode: true,
+      codex: false,
+    });
+    handler(req, res);
+    await flush();
+    expect(mocks.registerOne).not.toHaveBeenCalled();
+    expect(mocks.unregisterOne).not.toHaveBeenCalled();
+    // savePreferences still called: we always rewrite the file (idempotent).
     expect(mocks.savePreferences).toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
   });

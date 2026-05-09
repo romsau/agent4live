@@ -45,6 +45,60 @@ Le pre-commit hook fait passer `@commitlint/config-conventional` sur le message.
 
 ---
 
+## Tester comme un nouveau user — reset complet
+
+Pour valider le parcours d'onboarding "premier drop sur la piste Master, jamais utilisé agent4live avant", il faut un état système vraiment vierge — pas juste effacer `preferences.json`. Sinon le device saute Modal A (companion déjà installé), saute la migration silencieuse (entrée `.claude.json` toujours là), et l'expérience testée n'est pas celle d'un nouveau user.
+
+**Procédure canonique** (à exécuter Live device fermé / serveur :19845 down) :
+
+```bash
+~/.local/bin/claude mcp remove agent4live-ableton-mcp --scope user 2>&1
+rm -rf ~/Music/Ableton/User\ Library/Remote\ Scripts/agent4live
+rm -rf ~/.claude/skills/agent4live/SKILL.md
+rm -f  ~/.agent4live-ableton-mcp/preferences.json
+rm -f  ~/.agent4live-ableton-mcp/endpoint.json
+:    > ~/.agent4live-ableton-mcp/runtime.log
+```
+
+Ce que chaque ligne fait et **pourquoi** elle est nécessaire :
+
+| Cible                                                    | Effet de la conserver                                                      | Effet de l'effacer                                        |
+| -------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `claude mcp remove ... --scope user`                     | Migration silencieuse Claude détecte l'entrée localhost et auto-consent    | Modal C demande explicitement le consentement             |
+| `~/Music/Ableton/User Library/Remote Scripts/agent4live` | Companion déjà installé → Modal A est skipped                              | Modal A "Install companion" s'affiche                     |
+| `~/.claude/skills/agent4live/SKILL.md`                   | Skill agent déjà déployé                                                   | Skill recréé au boot, vérifie le déploiement              |
+| `~/.agent4live-ableton-mcp/preferences.json`             | Re-applique l'état persisté → pas de modal                                 | 1er boot détecté, cascade modal complète                  |
+| `~/.agent4live-ableton-mcp/endpoint.json`                | Réutilise l'ancien token (peut auth-fail si entrée CLI a un nouveau token) | Génère un nouveau token cohérent avec ce qu'on enregistre |
+| `runtime.log` (truncate via `: >`)                       | Conserve l'historique → grep difficile                                     | Log neuf, easy à grep pour debug                          |
+
+**Avant de lancer le reset** : faire le snapshot d'état pour pouvoir comparer avant/après :
+
+```bash
+curl -s -o /dev/null -w "server live=%{http_code}\n" http://127.0.0.1:19845/ui/state -m 1
+ls ~/.agent4live-ableton-mcp/
+ls ~/Music/Ableton/User\ Library/Remote\ Scripts/agent4live 2>&1 | head -3
+ls ~/.claude/skills/agent4live/SKILL.md 2>&1
+grep -c "agent4live-ableton-mcp" ~/.claude.json 2>/dev/null
+```
+
+Le check `server live` doit renvoyer `000` (pas de serveur en cours) avant de reset, sinon il y a un device actif quelque part qui va recréer les fichiers en parallèle.
+
+**Étendre le reset pour valider les nouvelles branches de migration silencieuse** : si on veut tester que la migration silencieuse Gemini ou Codex marche, il faut **fabriquer** une entrée localhost dans leur config (les fichiers n'existent pas par défaut sur une machine vierge) :
+
+```bash
+mkdir -p ~/.gemini && cat > ~/.gemini/settings.json <<'EOF'
+{ "mcpServers": { "agent4live-ableton-mcp": { "httpUrl": "http://127.0.0.1:19845/mcp" } } }
+EOF
+mkdir -p ~/.codex && cat > ~/.codex/config.toml <<'EOF'
+[mcp_servers.agent4live-ableton-mcp]
+url = "http://127.0.0.1:19845/mcp"
+EOF
+```
+
+Au prochain boot, ces deux agents doivent apparaître comme consentis sans que Modal C demande. À nettoyer après test (`rm ~/.gemini/settings.json ~/.codex/config.toml`).
+
+---
+
 ## Documentation Max 9 (locale, optionnelle)
 
 Si `~/dev/Ableton/max9-docs/corpus/` existe sur la machine, il contient la doc officielle Cycling '74 (LOM, Node for Max API, JS API) en Markdown grep-able :

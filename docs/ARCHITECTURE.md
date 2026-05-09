@@ -215,7 +215,16 @@ Endpoints HTTP exposés (tous derrière le check Origin) :
 
 UI : la card AGENT dans le header est cliquable et **rouvre** le modal post-consent (re-clic ferme = "miss click"). Chaque ouverture rend les checkboxes **toutes décochées** ; cocher un agent persiste immédiatement et ferme le modal.
 
-**Migration silencieuse** au tout 1er boot (`preferences.json` absent) : on lit `~/.claude.json` et `~/.config/opencode/opencode.json`, on cherche une entrée `agent4live-ableton` pointant sur localhost, et on adopte ces consents implicites pour ne pas casser un user qui upgrade depuis l'ancien auto-register. Codex/Gemini stockent leurs entrées MCP dans des formats qu'on ne lit pas disk-side, donc passent par le modal.
+**Migration silencieuse** au tout 1er boot (`preferences.json` absent) : on scanne les 4 configs CLI à la recherche d'une entrée `agent4live-ableton` pointant sur localhost, et on adopte ces consents implicites pour ne pas casser un user qui upgrade depuis l'ancien auto-register.
+
+| CLI         | Fichier                            | Format | Champ URL                  |
+| ----------- | ---------------------------------- | ------ | -------------------------- |
+| Claude Code | `~/.claude.json`                   | JSON   | `mcpServers[name].url`     |
+| OpenCode    | `~/.config/opencode/opencode.json` | JSON   | `mcp[name].url`            |
+| Gemini      | `~/.gemini/settings.json`          | JSON   | `mcpServers[name].httpUrl` |
+| Codex       | `~/.codex/config.toml`             | TOML   | `[mcp_servers.<name>].url` |
+
+Pour Codex on n'utilise pas de parser TOML (zéro dépendance ajoutée au `.amxd` frozen) — un scan stateful ligne-à-ligne suffit puisqu'on cherche **une seule** section connue et **une seule** clé `url`. Toutes les branches sont défensives (`try { } catch (_) {}`) : un fichier malformé retombe sur le modal, pas de régression.
 
 **Var env `AGENT4LIVE_AUTO_REGISTER=claude,codex,gemini,opencode`** : court-circuit pour CI / headless. Marque les agents listés comme consentis avant l'affichage du modal.
 

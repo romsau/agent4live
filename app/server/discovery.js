@@ -341,11 +341,54 @@ function runCmd(binaryPath, args, opts) {
  * @param {string} name - CLI binary name (e.g. "claude", "codex").
  * @returns {string|null} Absolute path to the binary, or null if not found.
  */
+/**
+ * Build the list of NVM-managed candidate paths for a binary name. Reads
+ * `~/.nvm/alias/default` to prioritize the user's default Node version,
+ * then enumerates every other installed version under
+ * `~/.nvm/versions/node/`. Returns an empty array if NVM isn't installed
+ * or the directories aren't readable.
+ *
+ * @param {string} name
+ * @returns {string[]}
+ */
+function _nvmCandidates(name) {
+  const nvmRoot = path.join(os.homedir(), '.nvm', 'versions', 'node');
+  const aliasFile = path.join(os.homedir(), '.nvm', 'alias', 'default');
+  const result = [];
+  let defaultVer = null;
+  try {
+    const content = fs.readFileSync(aliasFile, 'utf8').trim();
+    defaultVer = content.startsWith('v') ? content : `v${content}`;
+    result.push(path.join(nvmRoot, defaultVer, 'bin', name));
+  } catch (_) {}
+  try {
+    for (const dir of fs.readdirSync(nvmRoot)) {
+      if (dir !== defaultVer) {
+        result.push(path.join(nvmRoot, dir, 'bin', name));
+      }
+    }
+  } catch (_) {}
+  return result;
+}
+
+/**
+ * Resolve the absolute path of a CLI binary (claude / codex / gemini /
+ * opencode) on disk, or null if not found. Uses an explicit candidate list
+ * for the well-known install locations + NVM probe + a shell fallback.
+ *
+ * @param {string} name - CLI binary name (e.g. "claude", "gemini").
+ * @returns {string|null} Absolute path to the binary, or null if not found.
+ */
 function resolveBin(name) {
   // Probe well-known absolute install paths via fs.accessSync — instant and
   // immune to cold-start subprocess timeouts (running `<bin> --version` at
   // boot can exceed SUBPROCESS_TIMEOUT_MS when the OS hasn't warmed the
   // binary yet, leaving the agent silently undetected).
+  //
+  // Includes NVM-installed paths because the shell fallback `zsh -lc` doesn't
+  // load `.zshrc` (only `.zprofile`/`.zlogin`), and NVM's PATH wiring lives
+  // in `.zshrc`. So when Live is launched from launchd (no inherited PATH),
+  // `command -v gemini` returns nothing even though the binary is on disk.
   const candidates = [
     path.join(os.homedir(), '.local', 'bin', name),
     path.join(os.homedir(), '.opencode', 'bin', name),
@@ -354,6 +397,7 @@ function resolveBin(name) {
     path.join(os.homedir(), '.cargo', 'bin', name),
     `/usr/local/bin/${name}`,
     `/opt/homebrew/bin/${name}`,
+    ..._nvmCandidates(name),
   ];
   for (const candidate of candidates) {
     try {

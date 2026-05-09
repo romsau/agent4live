@@ -205,9 +205,14 @@ async function handlePreferencesBatch(req, res) {
   const url = `http://127.0.0.1:${PORT}/mcp`;
   const token = uiState.token;
   for (const agent of AGENTS) {
-    if (typeof body[agent] === 'boolean') {
-      await applyConsent(agent, body[agent], prefs, url, token);
-    }
+    if (typeof body[agent] !== 'boolean') continue;
+    // No-op skip: avoid spawning mcp add/remove subprocesses for agents whose
+    // consent state isn't changing. The Modal C mutex sends `false` for every
+    // non-selected agent on every click ; without this skip, deselecting 3
+    // already-unconsented agents costs 3 unnecessary subprocess round-trips.
+    const before = !!(prefs.agents[agent] && prefs.agents[agent].consented);
+    if (before === body[agent]) continue;
+    await applyConsent(agent, body[agent], prefs, url, token);
   }
   savePreferences(prefs);
   res.writeHead(200, { 'Content-Type': 'application/json' });

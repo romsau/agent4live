@@ -18,14 +18,18 @@
 //       ... } }
 //
 // Migration: when an old user updates the device, we scan their existing CLI
-// configs (.claude.json, opencode.json) for entries pointing at localhost. If
-// found we silently mark `consented: true` so they don't lose access — they
-// already implicitly granted it via the previous version.
+// configs for entries pointing at localhost. If found we silently mark
+// `consented: true` so they don't lose access — they already implicitly
+// granted it via the previous version. The four CLIs we cover all expose a
+// flat config file readable from disk (no bin-in-PATH required) :
+//   - Claude Code  → ~/.claude.json                 (JSON, mcpServers[name].url)
+//   - OpenCode     → ~/.config/opencode/opencode.json (JSON, mcp[name].url)
+//   - Gemini CLI   → ~/.gemini/settings.json        (JSON, mcpServers[name].httpUrl)
+//   - Codex CLI    → ~/.codex/config.toml           (TOML, [mcp_servers.<name>].url)
 //
-// Codex/Gemini configs aren't flat JSON we can introspect from disk, so their
-// migration is skipped — at the first boot the modal will offer to register
-// them again. (Calling `codex mcp list` to detect existing entries would
-// require the bin in PATH, which is exactly what migration tries to avoid.)
+// The Codex branch uses a stateful line scanner instead of a TOML parser —
+// the migration only needs one section and one url, so a regex+section-tracker
+// is enough and keeps the project zero-extra-deps.
 
 const fs = require('fs');
 const path = require('path');
@@ -37,6 +41,8 @@ const PREFERENCES_DIR = path.join(os.homedir(), '.agent4live-ableton-mcp');
 const PREFERENCES_FILE = path.join(PREFERENCES_DIR, 'preferences.json');
 const CLAUDE_CONFIG = path.join(os.homedir(), '.claude.json');
 const OPENCODE_CONFIG = path.join(os.homedir(), '.config', 'opencode', 'opencode.json');
+const GEMINI_CONFIG = path.join(os.homedir(), '.gemini', 'settings.json');
+const CODEX_CONFIG = path.join(os.homedir(), '.codex', 'config.toml');
 
 const CURRENT_VERSION = 1;
 const AGENTS = ['claudeCode', 'codex', 'gemini', 'opencode'];
@@ -160,6 +166,26 @@ function migrateFromExistingConfigs() {
     } catch (_) {}
   }
 
+  if (fs.existsSync(GEMINI_CONFIG)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(GEMINI_CONFIG, 'utf8'));
+      const entry = cfg && cfg.mcpServers && cfg.mcpServers[SERVER_NAME];
+      if (entry && typeof entry.httpUrl === 'string' && _isLocalhostUrl(entry.httpUrl)) {
+        result.gemini = true;
+      }
+    } catch (_) {}
+  }
+
+  if (fs.existsSync(CODEX_CONFIG)) {
+    try {
+      const toml = fs.readFileSync(CODEX_CONFIG, 'utf8');
+      const url = _extractCodexUrl(toml, SERVER_NAME);
+      if (url && _isLocalhostUrl(url)) {
+        result.codex = true;
+      }
+    } catch (_) {}
+  }
+
   return result;
 }
 
@@ -197,6 +223,35 @@ function _isLocalhostUrl(url) {
   return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/.*)?$/.test(url);
 }
 
+/**
+ * Extract the `url = "..."` value from a `[mcp_servers.<serverName>]` section
+ * of a Codex config.toml. Stateful line scan: tracks the current section
+ * header, returns the first `url` line inside the matching section, returns
+ * null if the section is absent or has no url. No external TOML parser to
+ * keep the .amxd freeze zero-dep.
+ *
+ * @param {string} toml - Raw config.toml content.
+ * @param {string} serverName - Section key to match (after `mcp_servers.`).
+ * @returns {string|null}
+ */
+function _extractCodexUrl(toml, serverName) {
+  const target = `[mcp_servers.${serverName}]`;
+  let inSection = false;
+  for (const rawLine of toml.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line === '' || line.startsWith('#')) continue;
+    if (line.startsWith('[') && line.endsWith(']')) {
+      inSection = line === target;
+      continue;
+    }
+    if (inSection) {
+      const m = line.match(/^url\s*=\s*"([^"]+)"/);
+      if (m) return m[1];
+    }
+  }
+  return null;
+}
+
 module.exports = {
   PREFERENCES_FILE,
   PREFERENCES_DIR,
@@ -210,4 +265,5 @@ module.exports = {
   migrateFromExistingConfigs,
   applyAutoRegisterEnv,
   _isLocalhostUrl,
+  _extractCodexUrl,
 };

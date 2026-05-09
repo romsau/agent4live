@@ -857,6 +857,85 @@ describe('registerCodex / registerGemini', () => {
   });
 });
 
+describe('resolveBin NVM probing', () => {
+  // Helper: simulate the NVM filesystem layout. `defaultAlias` is the
+  // content of ~/.nvm/alias/default (or null if missing), `versions` is the
+  // list of dirs under ~/.nvm/versions/node, `binFoundIn` lists which of
+  // those versions actually contains the requested bin under bin/<name>.
+  function mockNvm({ defaultAlias = null, versions = [], binFoundIn = [] }, name = 'gemini') {
+    const NVM_ROOT = path.join(HOME, '.nvm', 'versions', 'node');
+    const ALIAS_FILE = path.join(HOME, '.nvm', 'alias', 'default');
+    fs.readFileSync.mockImplementation((p) => {
+      if (p === ALIAS_FILE) {
+        if (defaultAlias === null) {
+          const err = new Error('ENOENT');
+          err.code = 'ENOENT';
+          throw err;
+        }
+        return defaultAlias;
+      }
+      throw new Error(`unexpected readFileSync(${p})`);
+    });
+    fs.readdirSync.mockImplementation((p) => {
+      if (p === NVM_ROOT) return versions;
+      throw new Error(`unexpected readdirSync(${p})`);
+    });
+    fs.accessSync.mockImplementation((p) => {
+      const wantedSuffixes = binFoundIn.map((v) => path.join(NVM_ROOT, v, 'bin', name));
+      if (wantedSuffixes.includes(String(p))) return;
+      const err = new Error('ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    });
+  }
+
+  it('finds gemini in the NVM default version', () => {
+    mockNvm({ defaultAlias: '20.9.0', versions: ['v20.9.0'], binFoundIn: ['v20.9.0'] });
+    discovery.detectAgents();
+    expect(uiState.agents.gemini.detected).toBe(true);
+  });
+
+  it('handles alias with leading v prefix', () => {
+    mockNvm({ defaultAlias: 'v20.9.0', versions: ['v20.9.0'], binFoundIn: ['v20.9.0'] });
+    discovery.detectAgents();
+    expect(uiState.agents.gemini.detected).toBe(true);
+  });
+
+  it('falls back to scanning all versions when default alias is missing', () => {
+    mockNvm({ defaultAlias: null, versions: ['v18.12.1', 'v20.9.0'], binFoundIn: ['v20.9.0'] });
+    discovery.detectAgents();
+    expect(uiState.agents.gemini.detected).toBe(true);
+  });
+
+  it('skips the NVM probe when ~/.nvm/versions/node does not exist', () => {
+    fs.readFileSync.mockImplementation(() => {
+      const err = new Error('ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    });
+    fs.readdirSync.mockImplementation(() => {
+      const err = new Error('ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    });
+    cp.execFileSync.mockImplementation(() => {
+      throw new Error('not found');
+    });
+    discovery.detectAgents();
+    expect(uiState.agents.gemini.detected).toBe(false);
+  });
+
+  it('finds gemini in a non-default version when default does not contain it', () => {
+    mockNvm({
+      defaultAlias: '14.12.0',
+      versions: ['v14.12.0', 'v20.9.0'],
+      binFoundIn: ['v20.9.0'],
+    });
+    discovery.detectAgents();
+    expect(uiState.agents.gemini.detected).toBe(true);
+  });
+});
+
 describe('resolveBin shell fallback', () => {
   // Helper: shell fallback returns the given absolute path AND fs.accessSync
   // accepts it (so resolveBin returns the path). Default beforeEach already

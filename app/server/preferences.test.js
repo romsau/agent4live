@@ -12,6 +12,8 @@ const HOME = os.homedir();
 const PREFERENCES_FILE = path.join(HOME, '.agent4live-ableton-mcp', 'preferences.json');
 const CLAUDE_CONFIG = path.join(HOME, '.claude.json');
 const OPENCODE_CONFIG = path.join(HOME, '.config', 'opencode', 'opencode.json');
+const GEMINI_CONFIG = path.join(HOME, '.gemini', 'settings.json');
+const CODEX_CONFIG = path.join(HOME, '.codex', 'config.toml');
 
 beforeEach(() => {
   jest.resetAllMocks();
@@ -184,7 +186,7 @@ describe('migrateFromExistingConfigs', () => {
     expect(prefsMod.migrateFromExistingConfigs()).toEqual({ opencode: true });
   });
 
-  it('detects both when both are present', () => {
+  it('detects all four when all four are present', () => {
     fs.existsSync.mockReturnValue(true);
     fs.readFileSync.mockImplementation((p) => {
       if (p === CLAUDE_CONFIG) {
@@ -197,9 +199,118 @@ describe('migrateFromExistingConfigs', () => {
           mcp: { 'agent4live-ableton': { url: 'http://127.0.0.1:1/mcp' } },
         });
       }
+      if (p === GEMINI_CONFIG) {
+        return JSON.stringify({
+          mcpServers: { 'agent4live-ableton': { httpUrl: 'http://127.0.0.1:1/mcp' } },
+        });
+      }
+      if (p === CODEX_CONFIG) {
+        return '[mcp_servers.agent4live-ableton]\nurl = "http://127.0.0.1:1/mcp"\n';
+      }
       return '{}';
     });
-    expect(prefsMod.migrateFromExistingConfigs()).toEqual({ claudeCode: true, opencode: true });
+    expect(prefsMod.migrateFromExistingConfigs()).toEqual({
+      claudeCode: true,
+      opencode: true,
+      gemini: true,
+      codex: true,
+    });
+  });
+
+  it('detects existing Gemini registration with localhost httpUrl', () => {
+    fs.existsSync.mockImplementation((p) => p === GEMINI_CONFIG);
+    fs.readFileSync.mockReturnValue(
+      JSON.stringify({
+        mcpServers: { 'agent4live-ableton': { httpUrl: 'http://localhost:19845/mcp' } },
+      }),
+    );
+    expect(prefsMod.migrateFromExistingConfigs()).toEqual({ gemini: true });
+  });
+
+  it('ignores Gemini entry without httpUrl field', () => {
+    fs.existsSync.mockImplementation((p) => p === GEMINI_CONFIG);
+    fs.readFileSync.mockReturnValue(JSON.stringify({ mcpServers: { 'agent4live-ableton': {} } }));
+    expect(prefsMod.migrateFromExistingConfigs()).toEqual({});
+  });
+
+  it('ignores Gemini entry with non-localhost httpUrl', () => {
+    fs.existsSync.mockImplementation((p) => p === GEMINI_CONFIG);
+    fs.readFileSync.mockReturnValue(
+      JSON.stringify({
+        mcpServers: { 'agent4live-ableton': { httpUrl: 'https://evil.com/mcp' } },
+      }),
+    );
+    expect(prefsMod.migrateFromExistingConfigs()).toEqual({});
+  });
+
+  it('ignores Gemini entry where url field is used (Gemini expects httpUrl)', () => {
+    fs.existsSync.mockImplementation((p) => p === GEMINI_CONFIG);
+    fs.readFileSync.mockReturnValue(
+      JSON.stringify({
+        mcpServers: { 'agent4live-ableton': { url: 'http://127.0.0.1:19845/mcp' } },
+      }),
+    );
+    expect(prefsMod.migrateFromExistingConfigs()).toEqual({});
+  });
+
+  it('detects existing Codex registration with localhost url in TOML section', () => {
+    fs.existsSync.mockImplementation((p) => p === CODEX_CONFIG);
+    fs.readFileSync.mockReturnValue(
+      [
+        '[mcp_servers.agent4live-ableton]',
+        'url = "http://127.0.0.1:19845/mcp"',
+        'bearer_token_env_var = "AGENT4LIVE_TOKEN"',
+        '',
+      ].join('\n'),
+    );
+    expect(prefsMod.migrateFromExistingConfigs()).toEqual({ codex: true });
+  });
+
+  it('ignores Codex section with non-localhost url', () => {
+    fs.existsSync.mockImplementation((p) => p === CODEX_CONFIG);
+    fs.readFileSync.mockReturnValue(
+      ['[mcp_servers.agent4live-ableton]', 'url = "https://evil.com/mcp"', ''].join('\n'),
+    );
+    expect(prefsMod.migrateFromExistingConfigs()).toEqual({});
+  });
+
+  it('ignores Codex file when our section is missing', () => {
+    fs.existsSync.mockImplementation((p) => p === CODEX_CONFIG);
+    fs.readFileSync.mockReturnValue(
+      ['[mcp_servers.figma]', 'url = "https://mcp.figma.com/mcp"', ''].join('\n'),
+    );
+    expect(prefsMod.migrateFromExistingConfigs()).toEqual({});
+  });
+
+  it('ignores Codex section without a url field', () => {
+    fs.existsSync.mockImplementation((p) => p === CODEX_CONFIG);
+    fs.readFileSync.mockReturnValue(
+      ['[mcp_servers.agent4live-ableton]', 'bearer_token_env_var = "X"', ''].join('\n'),
+    );
+    expect(prefsMod.migrateFromExistingConfigs()).toEqual({});
+  });
+
+  it('ignores Codex url that lives in another section (only ours counts)', () => {
+    fs.existsSync.mockImplementation((p) => p === CODEX_CONFIG);
+    fs.readFileSync.mockReturnValue(
+      [
+        '[mcp_servers.someone-else]',
+        'url = "http://127.0.0.1:9999/mcp"',
+        '',
+        '[mcp_servers.agent4live-ableton]',
+        'bearer_token_env_var = "X"',
+        '',
+      ].join('\n'),
+    );
+    expect(prefsMod.migrateFromExistingConfigs()).toEqual({});
+  });
+
+  it('handles malformed Codex TOML silently', () => {
+    fs.existsSync.mockImplementation((p) => p === CODEX_CONFIG);
+    fs.readFileSync.mockImplementation(() => {
+      throw new Error('boom');
+    });
+    expect(prefsMod.migrateFromExistingConfigs()).toEqual({});
   });
 
   it('ignores non-localhost URL (defense against migration of remote entry)', () => {
@@ -295,6 +406,59 @@ describe('applyAutoRegisterEnv', () => {
     const p = { agents: {} };
     prefsMod.applyAutoRegisterEnv(p, 'http://127.0.0.1:19845/mcp');
     expect(p.agents.claudeCode.url_at_consent).toBe('http://127.0.0.1:19845/mcp');
+  });
+});
+
+describe('_extractCodexUrl', () => {
+  it('returns the url from the matching section', () => {
+    const toml = '[mcp_servers.agent4live-ableton]\nurl = "http://127.0.0.1:1/mcp"\n';
+    expect(prefsMod._extractCodexUrl(toml, 'agent4live-ableton')).toBe('http://127.0.0.1:1/mcp');
+  });
+
+  it('returns null when the section is missing', () => {
+    const toml = '[mcp_servers.figma]\nurl = "https://mcp.figma.com/mcp"\n';
+    expect(prefsMod._extractCodexUrl(toml, 'agent4live-ableton')).toBeNull();
+  });
+
+  it('returns null when the matching section has no url key', () => {
+    const toml = '[mcp_servers.agent4live-ableton]\nbearer_token_env_var = "X"\n';
+    expect(prefsMod._extractCodexUrl(toml, 'agent4live-ableton')).toBeNull();
+  });
+
+  it('stops at the next section header (no leak across sections)', () => {
+    const toml = [
+      '[mcp_servers.agent4live-ableton]',
+      'bearer_token_env_var = "X"',
+      '[mcp_servers.figma]',
+      'url = "https://mcp.figma.com/mcp"',
+    ].join('\n');
+    expect(prefsMod._extractCodexUrl(toml, 'agent4live-ableton')).toBeNull();
+  });
+
+  it('skips comment lines and blank lines', () => {
+    const toml = [
+      '# comment',
+      '',
+      '[mcp_servers.agent4live-ableton]',
+      '# inline comment',
+      '',
+      'url = "http://127.0.0.1:1/mcp"',
+    ].join('\n');
+    expect(prefsMod._extractCodexUrl(toml, 'agent4live-ableton')).toBe('http://127.0.0.1:1/mcp');
+  });
+
+  it('tolerates extra whitespace around the equals sign', () => {
+    const toml = '[mcp_servers.agent4live-ableton]\nurl    =   "http://127.0.0.1:1/mcp"\n';
+    expect(prefsMod._extractCodexUrl(toml, 'agent4live-ableton')).toBe('http://127.0.0.1:1/mcp');
+  });
+
+  it('handles CRLF line endings (Windows)', () => {
+    const toml = '[mcp_servers.agent4live-ableton]\r\nurl = "http://127.0.0.1:1/mcp"\r\n';
+    expect(prefsMod._extractCodexUrl(toml, 'agent4live-ableton')).toBe('http://127.0.0.1:1/mcp');
+  });
+
+  it('returns null on empty input', () => {
+    expect(prefsMod._extractCodexUrl('', 'agent4live-ableton')).toBeNull();
   });
 });
 

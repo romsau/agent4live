@@ -321,43 +321,53 @@
         align-items: center;
         gap: 6px;
         background: #111;
+        border: 1px solid transparent;
         border-radius: 3px;
         padding: 10px 8px;
+        cursor: pointer;
+        transition:
+          background 0.1s,
+          border-color 0.1s;
+        color: #ccc;
       }
-      #consent .cell.disabled label {
+      #consent .cell:hover:not(.disabled):not(.active) {
+        background: #1a1a1a;
+        border-color: #555;
+      }
+      #consent .cell.active {
+        background: #2c5e2e;
+        border-color: #2ecc71;
+        color: #fff;
+      }
+      #consent .cell.disabled {
         opacity: 0.45;
         cursor: not-allowed;
       }
-      #consent .cell label {
+      #consent .cell .name {
         flex: 1;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
       }
-      #consent .cell input[type='checkbox'] {
-        appearance: none;
-        -webkit-appearance: none;
-        width: 12px;
-        height: 12px;
+      /* Busy state — POST /preferences in flight. Block clicks on the whole
+         grid, dim the non-pending cells, and show a mini spinner on the cell
+         that the user just clicked. */
+      #consent-opts.busy {
+        pointer-events: none;
+      }
+      #consent-opts.busy .cell:not(.pending) {
+        opacity: 0.5;
+      }
+      #consent .cell .spinner {
+        width: 9px;
+        height: 9px;
+        border: 1.5px solid rgba(255, 255, 255, 0.25);
+        border-top-color: #fff;
         border-radius: 50%;
-        border: 1px solid #555;
-        background: #1a1a1a;
-        margin: 0;
+        animation: a4l-spin 0.7s linear infinite;
         flex-shrink: 0;
-        cursor: pointer;
-        transition: all 0.1s;
       }
-      #consent .cell input[type='checkbox']:hover:not(:disabled) {
-        border-color: #aaa;
-      }
-      #consent .cell input[type='checkbox']:checked {
-        background: #2ecc71;
-        border-color: #2ecc71;
-        box-shadow: inset 0 0 0 2px #1a1a1a;
-      }
-      #consent .cell input[type='checkbox']:disabled {
-        cursor: not-allowed;
+      @keyframes a4l-spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
       #consent .extlink {
         color: #6a93b3;
@@ -561,12 +571,27 @@
       // "Restart Live" screen until the device reboots. The flag resets on
       // reload (full page refresh after Live restart) so it's transient.
       var justInstalled = false;
+      // Last-rendered consent signature — used to skip re-rendering the modal
+      // when the agents struct hasn't changed. Without this, the 500ms poll
+      // wipes + recreates the cells every tick, killing :hover focus on the
+      // cell-button-cards (the new cell hasn't received the mouseover event
+      // yet, causing a flicker until the mouse moves).
+      var lastConsentSig = null;
 
       // Render the welcome modal. Disable cells for agents not detected on
-      // this machine. Each checkbox auto-saves its single-agent consent on
-      // change — once any toggle persists, /ui/state.firstBoot flips false
-      // and the modal hides itself on the next poll.
+      // this machine. Each cell is a card-button: click anywhere selects that
+      // agent (mutex auto-clears the others), re-click on the active cell
+      // deselects (back to "no agent"). Once any toggle persists, /ui/state
+      // .firstBoot flips false and the modal hides itself on the next poll.
       function renderConsentModal(agents) {
+        var sig = agentDefs
+          .map(function (d) {
+            var info = agents[d[0]] || {};
+            return d[0] + ':' + (info.detected ? '1' : '0') + (info.consented ? 'c' : '');
+          })
+          .join('|');
+        if (sig === lastConsentSig) return;
+        lastConsentSig = sig;
         var optsEl = document.getElementById('consent-opts');
         optsEl.textContent = '';
         agentDefs.forEach(function (def) {
@@ -575,58 +600,18 @@
           var url = def[2];
           var info = agents[key] || {};
           var cell = document.createElement('div');
-          cell.className = 'cell' + (info.detected ? '' : ' disabled');
-          var lbl = document.createElement('label');
-          var cb = document.createElement('input');
-          cb.type = 'checkbox';
-          cb.disabled = !info.detected;
-          // Always render unchecked — both at firstBoot (no consent yet) and
-          // when the user re-opens the modal via the AGENT card. Pre-selecting
-          // the current agent is visually noisy: the user is here to switch
-          // or clear, not re-affirm.
-          cb.checked = false;
-          cb.addEventListener('change', function () {
-            cb.disabled = true;
-            // Single-agent rule: checking one auto-unchecks the others.
-            // Unchecking the last one falls through to "no agent registered".
-            if (cb.checked) {
-              var allCbs = document.querySelectorAll('#consent-opts input[type=checkbox]');
-              allCbs.forEach(function (other) {
-                if (other !== cb) other.checked = false;
-              });
-            }
-            // Batch POST so the server flips everything atomically.
-            var body = {};
-            agentDefs.forEach(function (d) {
-              body[d[0]] = false;
-            });
-            if (cb.checked) body[key] = true;
-            fetch('/preferences', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-            })
-              .catch(function () {})
-              .then(function () {
-                cb.disabled = !info.detected;
-                // Close the manual-reopen modal as soon as the change persists.
-                // (firstBoot transitions to false on the next poll anyway.)
-                manualOpen = false;
-                return fetch('/ui/state')
-                  .then(function (r) {
-                    return r.json();
-                  })
-                  .then(update);
-              });
-          });
-          lbl.appendChild(cb);
+          var isActive = !!info.consented;
+          cell.className =
+            'cell' + (info.detected ? '' : ' disabled') + (isActive ? ' active' : '');
+          cell.dataset.agent = key;
           var name = document.createElement('span');
+          name.className = 'name';
           name.textContent = label;
-          lbl.appendChild(name);
-          cell.appendChild(lbl);
+          cell.appendChild(name);
           // External install link only for agents NOT detected — they're the
           // ones the user might still want to grab. Detected = already on the
-          // machine, no need to advertise the install page.
+          // machine, no need to advertise the install page. Stop click
+          // propagation so opening the link doesn't also toggle the cell.
           if (!info.detected) {
             var link = document.createElement('a');
             link.href = url;
@@ -635,7 +620,62 @@
             link.className = 'extlink';
             link.textContent = '↗';
             link.title = 'Install ' + label;
+            link.addEventListener('click', function (e) {
+              e.stopPropagation();
+            });
             cell.appendChild(link);
+          }
+          if (info.detected) {
+            cell.addEventListener('click', function () {
+              if (cell.classList.contains('disabled')) return;
+              if (optsEl.classList.contains('busy')) return;
+              var becomingActive = !cell.classList.contains('active');
+              // Visually flip immediately for snappy feedback ; rollback on
+              // POST failure via the next /ui/state poll.
+              var allCells = document.querySelectorAll('#consent-opts .cell');
+              allCells.forEach(function (other) {
+                other.classList.remove('active');
+              });
+              if (becomingActive) cell.classList.add('active');
+              // Mark the grid busy + show a mini spinner inside the clicked
+              // cell while the POST is in flight (server-side mcp add/remove
+              // can take 1-2s on cold subprocess spawns).
+              optsEl.classList.add('busy');
+              cell.classList.add('pending');
+              var spinner = document.createElement('span');
+              spinner.className = 'spinner';
+              cell.appendChild(spinner);
+              // Batch POST so the server flips the mutex atomically.
+              var body = {};
+              agentDefs.forEach(function (d) {
+                body[d[0]] = false;
+              });
+              if (becomingActive) body[key] = true;
+              fetch('/preferences', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              })
+                .catch(function () {})
+                .then(function () {
+                  // Close the manual-reopen modal as soon as the change persists.
+                  // (firstBoot transitions to false on the next poll anyway.)
+                  manualOpen = false;
+                  // Drop the busy state — the next render will rebuild cells
+                  // anyway when the agents struct's signature changes, so we
+                  // also force a fresh signature so the .pending/.busy DOM is
+                  // replaced by a clean re-render.
+                  optsEl.classList.remove('busy');
+                  cell.classList.remove('pending');
+                  if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
+                  lastConsentSig = null;
+                  return fetch('/ui/state')
+                    .then(function (r) {
+                      return r.json();
+                    })
+                    .then(update);
+                });
+            });
           }
           optsEl.appendChild(cell);
         });
