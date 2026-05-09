@@ -18,6 +18,16 @@ const allGreenAgents = {
   gemini: { detected: true, registered: true },
 };
 
+// Single agent consented (Claude Code) + others detected but not consented.
+// Mirrors the mutex single-agent rule and gives the AGENT card a green status
+// for the post-onboarding "device idle" preview.
+const claudeConsented = {
+  claudeCode: { detected: true, registered: true, consented: true },
+  opencode: { detected: true, registered: false, consented: false },
+  codex: { detected: true, registered: false, consented: false },
+  gemini: { detected: true, registered: false, consented: false },
+};
+
 // Used to preview the consent modal (4 detected agents, none consented yet).
 const allDetectedNotConsented = {
   claudeCode: { detected: true, registered: false, consented: false },
@@ -96,6 +106,22 @@ module.exports = {
     companionStatus: companionReady,
   },
 
+  // Post-onboarding "device idle" preview — Claude Code consented, MCP+LIVEAPI
+  // up, but no agent call has happened yet. Empty log → the UI shows the
+  // "Waiting for the first agent call..." placeholder ; the 3 header cards
+  // (MCP/LIVEAPI/AGENT) all render green.
+  'default-idle': {
+    mode: 'active',
+    activePeer: null,
+    connected: true,
+    port: 19845,
+    liveApiOk: true,
+    latencyMs: 12,
+    logs: [],
+    agents: claudeConsented,
+    companionStatus: companionReady,
+  },
+
   'log-saturated': {
     connected: true,
     port: 19845,
@@ -161,6 +187,24 @@ module.exports = {
     agents: allDetectedNotConsented,
     firstBoot: true,
     companionStatus: companionReady,
+  },
+
+  // Modal "Restart Live" — companion vient d'être installé (clic sur INSTALL
+  // a réussi), Live n'a pas encore été redémarré donc le ping n'aboutit
+  // toujours pas. justInstalled=true verrouille l'UI sur ce modal jusqu'au
+  // reload de page (= restart Live qui re-drop le device en pratique).
+  'companion-restart-pending': {
+    mode: 'active',
+    activePeer: null,
+    connected: true,
+    port: 19845,
+    liveApiOk: true,
+    latencyMs: 12,
+    logs: [],
+    agents: allRedAgents,
+    firstBoot: true,
+    companionStatus: companionScriptOnly,
+    justInstalled: true,
   },
 
   // Modal A — companion script not yet installed in User Library.

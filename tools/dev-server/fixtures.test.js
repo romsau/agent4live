@@ -6,11 +6,13 @@ describe('fixtures', () => {
   it('exposes the named UI snapshots used by the dev-server', () => {
     const expected = [
       'default',
+      'default-idle',
       'log-saturated',
       'passive-warning',
       'passive-warning-no-track',
       'consent-modal-mixed',
       'consent-modal-all-detected',
+      'companion-restart-pending',
     ];
     for (const k of expected) {
       expect(fixtures[k]).toBeDefined();

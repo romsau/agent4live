@@ -15,46 +15,75 @@
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         min-height: 100vh;
         display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: flex-start;
-        padding: 32px 24px 48px;
-        gap: 20px;
+        flex-direction: row;
       }
-      h1 {
-        font-size: 13px;
+      .sidebar {
+        width: 220px;
+        flex-shrink: 0;
+        border-right: 1px solid #1a1a1a;
+        padding: 28px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .sidebar h1 {
+        font-size: 11px;
         font-weight: 500;
         color: #666;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
+        margin-bottom: 2px;
+      }
+      .sidebar .hint {
+        font-size: 9px;
+        color: #3a3a3a;
+        letter-spacing: 0.04em;
+        margin-bottom: 18px;
       }
       .fixtures {
         display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        justify-content: center;
-        max-width: 640px;
+        flex-direction: column;
+        gap: 1px;
       }
-      .fixtures button {
-        background: #161616;
-        border: 1px solid #262626;
-        color: #888;
-        padding: 6px 12px;
-        border-radius: 4px;
+      .fixture-row {
+        background: transparent;
+        border: 0;
+        color: #5a5a5a;
+        padding: 6px 10px;
         font-size: 11px;
         cursor: pointer;
         font-family: inherit;
+        text-align: left;
+        border-radius: 4px;
         transition: all 0.12s ease;
+        letter-spacing: 0.01em;
+        position: relative;
       }
-      .fixtures button:hover {
-        border-color: #444;
+      .fixture-row:hover {
+        background: #131318;
         color: #ccc;
       }
-      .fixtures button.active {
+      .fixture-row.active {
+        background: #1a2922;
+        color: #2ecc71;
+      }
+      .fixture-row.active::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 6px;
+        bottom: 6px;
+        width: 2px;
         background: #2ecc71;
-        color: #0a0a0a;
-        border-color: #2ecc71;
-        font-weight: 500;
+        border-radius: 2px;
+      }
+      .main {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 32px;
+        position: relative;
       }
       .frame-wrap {
         width: 360px;
@@ -63,7 +92,6 @@
         border-radius: 6px;
         overflow: hidden;
         position: relative;
-        margin-top: 8px;
       }
       .frame-wrap::after {
         content: '360 × 170 (jweb)';
@@ -99,62 +127,25 @@
       .reload-flash.show {
         opacity: 1;
       }
-      details {
-        max-width: 640px;
-        width: 100%;
-        margin-top: 4px;
-      }
-      summary {
-        cursor: pointer;
-        font-size: 11px;
-        color: #666;
-        padding: 6px 0;
-        user-select: none;
-      }
-      summary:hover {
-        color: #aaa;
-      }
-      pre {
-        background: #161616;
-        border: 1px solid #262626;
-        border-radius: 4px;
-        padding: 12px;
-        font-size: 10px;
-        line-height: 1.5;
-        color: #aaa;
-        max-height: 340px;
-        overflow: auto;
-        font-family: 'SF Mono', Monaco, Consolas, monospace;
-      }
-      .hint {
-        font-size: 10px;
-        color: #444;
-        letter-spacing: 0.04em;
-        margin-top: -12px;
-      }
     </style>
   </head>
   <body>
-    <h1>agent4live — UI dev</h1>
-    <div class="hint">edit <code>server/ui/state.js</code> · auto-reloads</div>
-
-    <div id="fixtures" class="fixtures"></div>
-
-    <div class="frame-wrap">
-      <iframe id="frame" src="/ui"></iframe>
-    </div>
-
-    <details>
-      <summary>State JSON (active fixture)</summary>
-      <pre id="state-json">loading…</pre>
-    </details>
+    <aside class="sidebar">
+      <h1>agent4live</h1>
+      <div class="hint">UI dev · auto-reloads</div>
+      <div id="fixtures" class="fixtures"></div>
+    </aside>
+    <main class="main">
+      <div class="frame-wrap">
+        <iframe id="frame" src="/ui"></iframe>
+      </div>
+    </main>
 
     <div id="reload-flash" class="reload-flash">reloaded</div>
 
     <script>
       const fixturesEl = document.getElementById('fixtures');
       const frame = document.getElementById('frame');
-      const stateJson = document.getElementById('state-json');
       const flash = document.getElementById('reload-flash');
 
       async function loadFixtures() {
@@ -163,6 +154,7 @@
         fixturesEl.textContent = '';
         names.forEach((name) => {
           const b = document.createElement('button');
+          b.className = 'fixture-row';
           b.textContent = name;
           if (name === active) b.classList.add('active');
           b.onclick = () => switchFixture(name);
@@ -180,13 +172,19 @@
         frame.src = '/ui?t=' + Date.now();
       }
 
-      async function pollState() {
+      // Dev-only escape hatch: certaines fixtures simulent un état UI piloté
+      // par une var locale dans active.html (ex. `justInstalled` qui verrouille
+      // le modal "Restart Live"). Plutôt que polluer le code de production
+      // avec un bridge state→var, on inject directement la var dans le scope
+      // de l'iframe une fois chargée. La prod ne renvoie jamais ces champs
+      // donc l'effet est strictement contenu au dev server.
+      frame.addEventListener('load', async () => {
         try {
           const res = await fetch('/ui/state');
-          stateJson.textContent = JSON.stringify(await res.json(), null, 2);
+          const state = await res.json();
+          if (state.justInstalled) frame.contentWindow.justInstalled = true;
         } catch (_) {}
-        setTimeout(pollState, 1000);
-      }
+      });
 
       function showFlash() {
         flash.classList.add('show');
@@ -204,7 +202,6 @@
       });
 
       loadFixtures();
-      pollState();
     </script>
   </body>
 </html>
