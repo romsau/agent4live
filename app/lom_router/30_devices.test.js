@@ -9,6 +9,7 @@ const {
   lom_get_track_devices,
   lom_get_device_params,
   lom_move_device,
+  lom_select_device,
 } = devices;
 
 beforeEach(() => {
@@ -365,5 +366,48 @@ describe('lom_move_device', () => {
     }
     expect(outlet.mock.calls.at(-1)[3]).toBe('error');
     expect(outlet.mock.calls.at(-1)[4]).toMatch(/No track/);
+  });
+});
+
+describe('lom_select_device', () => {
+  it('calls view.select_device with the resolved device id', () => {
+    const callSpy = jest.fn();
+    const original = global.LiveAPI;
+    global.LiveAPI = jest.fn().mockImplementation((_handler, path) => {
+      if (path === 'live_set tracks 2 devices 1') return { id: 42 };
+      if (path === 'live_set view') return { call: callSpy };
+      return null;
+    });
+    try {
+      lom_select_device(7, 2, 1);
+    } finally {
+      global.LiveAPI = original;
+    }
+    expect(callSpy).toHaveBeenCalledWith('select_device', 42);
+    expect(outlet.mock.calls.at(-1)[3]).toBe('ok');
+  });
+
+  it('throws when device id is 0 (no device at index)', () => {
+    const original = global.LiveAPI;
+    global.LiveAPI = jest.fn().mockImplementation(() => ({ id: 0 }));
+    try {
+      lom_select_device(7, 0, 99);
+    } finally {
+      global.LiveAPI = original;
+    }
+    expect(outlet.mock.calls.at(-1)[3]).toBe('error');
+    expect(outlet.mock.calls.at(-1)[4]).toMatch(/No device/);
+  });
+
+  it('throws when device id resolves to falsy string "0"', () => {
+    const original = global.LiveAPI;
+    global.LiveAPI = jest.fn().mockImplementation(() => ({ id: '0' }));
+    try {
+      lom_select_device(7, 0, 0);
+    } finally {
+      global.LiveAPI = original;
+    }
+    expect(outlet.mock.calls.at(-1)[3]).toBe('error');
+    expect(outlet.mock.calls.at(-1)[4]).toMatch(/No device/);
   });
 });

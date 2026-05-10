@@ -157,6 +157,7 @@ const lomGetScale = () => callDedicated('lom_get_scale');
 const lomGetSelection = () => callDedicated('lom_get_selection');
 const lomSelectTrack = (track) => callDedicated('lom_select_track', track);
 const lomSelectScene = (scene) => callDedicated('lom_select_scene', scene);
+const lomSelectDevice = (track, device) => callDedicated('lom_select_device', track, device);
 const lomGetGrooves = () => callDedicated('lom_get_grooves');
 const lomSetClipGroove = (track, slot, grooveIdx) =>
   callDedicated('lom_set_clip_groove', track, slot, grooveIdx);
@@ -234,6 +235,7 @@ module.exports = {
   lomGetSelection,
   lomSelectTrack,
   lomSelectScene,
+  lomSelectDevice,
   lomGetGrooves,
   lomSetClipGroove,
   lomGetControlSurfaces,

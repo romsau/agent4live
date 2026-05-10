@@ -149,7 +149,7 @@ function register(server) {
   defineTool(server, {
     name: 'toggle_browse',
     description:
-      "Toggle Live's Hot-Swap Mode for the currently selected device. While active, the Browser is shown and Browser.load_item / browser_load_item replaces the device's content instead of inserting a new one. Call again to deactivate. Read browse_mode via get_view_state to check current state.",
+      "Toggle Live's Hot-Swap Mode for the currently selected device. While active, the Browser is shown and Browser.load_item / browser_load_item replaces the device's content instead of inserting a new one. Call again to deactivate. Read browse_mode via get_view_state to check current state. Programmatic hot-swap sequence: select_device(track, device) → toggle_browse() → browser_load_item(path) → toggle_browse() to swap a preset without manual UI focus.",
     handler: () => lomCall('live_app view', 'toggle_browse'),
     successText: 'Hot-Swap Mode toggled',
   });

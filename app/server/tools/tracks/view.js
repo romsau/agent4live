@@ -6,7 +6,7 @@
 
 const { z } = require('zod');
 const { defineTool } = require('../define');
-const { lomSet, lomCall } = require('../../lom');
+const { lomSet, lomCall, lomSelectDevice } = require('../../lom');
 
 // Path helpers — DRY for the LOM hierarchy.
 const trackPath = (track) => `live_set tracks ${track}`;
@@ -45,6 +45,18 @@ function register(server) {
     schema: { track: z.number().int().min(0) },
     handler: ({ track }) => lomCall(`${trackPath(track)} view`, 'select_instrument'),
     successText: ({ track }) => `Track ${track} instrument selected/focused`,
+  });
+
+  defineTool(server, {
+    name: 'select_device',
+    description:
+      "Select a specific device on a track in Live's UI by its index in the device chain (0-based). Use get_track_devices to discover device indices. The selected device becomes the target for subsequent hot-swap operations and is the device shown in the Detail/DeviceChain view. Programmatic hot-swap workflow: select_device(track, device) → toggle_browse() → browser_load_item(path) → toggle_browse() to replace a device's preset without manual UI focus.",
+    schema: {
+      track: z.number().int().min(0).describe('Track index (0-based)'),
+      device: z.number().int().min(0).describe('Device index within the track chain (0-based)'),
+    },
+    handler: ({ track, device }) => lomSelectDevice(track, device),
+    successText: ({ track, device }) => `Device ${device} on track ${track} selected/focused`,
   });
 
   // NB: set_track_back_to_arranger pas exposé pour les mêmes raisons que

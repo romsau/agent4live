@@ -1066,6 +1066,33 @@ function lom_move_device(id, fromTrack, fromIdx, toTrack, toPosition) {
   });
 }
 
+/**
+ * Select a device in Live's UI by track + device index. Calls
+ * Song.View.select_device(id) — the documented method takes a Device id, so
+ * we resolve the LOM path to its id first, then dispatch.
+ *
+ * Use case: programmatic hot-swap workflow. Compose with toggle_browse() +
+ * browser_load_item(path) to replace a device's preset without manual UI
+ * focus. Sequence: select_device → toggle_browse → browser_load_item →
+ * toggle_browse.
+ *
+ * @param {number} id
+ * @param {number} trackIndex
+ * @param {number} deviceIndex
+ */
+function lom_select_device(id, trackIndex, deviceIndex) {
+  _handle(id, function () {
+    var d = new LiveAPI(null, _trackPath(trackIndex) + ' devices ' + parseInt(deviceIndex));
+    var did = d.id;
+    if (!did || did === 0 || did === '0') {
+      throw new Error('No device at track ' + trackIndex + ' index ' + deviceIndex);
+    }
+    var view = new LiveAPI(null, 'live_set view');
+    view.call('select_device', did);
+    return 'done';
+  });
+}
+
 // ━━━ from 40_racks.js ━━━
 
 // AUTO-AUTHORED — this file is one of several concatenated at build

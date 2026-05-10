@@ -76,7 +76,10 @@ function register(server) {
       'path is the one returned in `browser_search` results (e.g. ' +
       "'/drums/Percussion Core Kit.adg') or built from `browser_list_items`. " +
       'Live places the item where its UI hot-swap target is — typically the ' +
-      'selected track or device. Requires the agent4live Python companion.',
+      'selected track or device. For programmatic hot-swap of a specific ' +
+      'device (replace its preset without manual UI focus), the sequence is: ' +
+      'select_device(track, device) → toggle_browse() → browser_load_item(path) ' +
+      '→ toggle_browse(). Requires the agent4live Python companion.',
     schema: {
       path: z
         .string()

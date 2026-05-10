@@ -236,3 +236,20 @@ describe('browser helpers', () => {
     await promise;
   });
 });
+
+describe('midi helpers', () => {
+  it('sendMidi sends method send_midi with status/data1/data2', async () => {
+    const socket = makeFakeSocket();
+    net.Socket.mockImplementation(() => socket);
+    const { sendMidi } = require('./python');
+    const promise = sendMidi(0x90, 60, 100);
+    await new Promise((r) => setImmediate(r));
+    const sent = socket.write.mock.calls[0][0];
+    expect(sent).toContain('"method":"send_midi"');
+    expect(sent).toContain('"status":144'); // 0x90
+    expect(sent).toContain('"data1":60');
+    expect(sent).toContain('"data2":100');
+    socket.emit('data', '{"ok":true}\n');
+    expect(await promise).toEqual({ ok: true });
+  });
+});

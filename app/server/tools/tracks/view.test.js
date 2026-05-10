@@ -3,6 +3,7 @@
 jest.mock('../../lom', () => ({
   lomSet: jest.fn(() => Promise.resolve()),
   lomCall: jest.fn(() => Promise.resolve()),
+  lomSelectDevice: jest.fn(() => Promise.resolve()),
 }));
 jest.mock('../../ui/state', () => ({ uiLog: jest.fn() }));
 
@@ -35,4 +36,10 @@ it('set_track_collapsed encodes boolean → 1/0 on view path', async () => {
 it('select_track_instrument calls select_instrument on view path', async () => {
   await callHandlerText(byName('select_track_instrument').handler, { track: 0 });
   expect(lom.lomCall).toHaveBeenCalledWith('live_set tracks 0 view', 'select_instrument');
+});
+
+it('select_device delegates to lomSelectDevice with track + device indices', async () => {
+  const text = await callHandlerText(byName('select_device').handler, { track: 2, device: 1 });
+  expect(lom.lomSelectDevice).toHaveBeenCalledWith(2, 1);
+  expect(text).toBe('Device 1 on track 2 selected/focused');
 });

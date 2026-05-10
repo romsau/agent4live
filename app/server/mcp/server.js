@@ -83,6 +83,7 @@ function registerTools(server) {
   tools.instruments.register(server);
   tools.browser.register(server);
   tools.tuning.register(server);
+  tools.midi.register(server);
   tools.meta.register(server);
 }
 

@@ -136,6 +136,21 @@ function browserSearch(query, root, limit) {
   );
 }
 
+/**
+ * Send a 3-byte MIDI message via the companion's Control Surface output port.
+ * Resolves with `{ ok: true }` on success ; the message is silently dropped
+ * by Live if the slot has Output = "None" — there's no error in that case.
+ *
+ * @param {number} status - Status byte (0x80–0xEF). Examples: 0x90 = note-on
+ *   ch 1, 0xB0 = CC ch 1.
+ * @param {number} data1 - First data byte (note number or CC number, 0–127).
+ * @param {number} data2 - Second data byte (velocity or CC value, 0–127).
+ * @returns {Promise<{ ok: boolean, error?: string }>}
+ */
+function sendMidi(status, data1, data2) {
+  return pythonCall({ method: 'send_midi', status, data1, data2 });
+}
+
 module.exports = {
   pythonCall,
   ping,
@@ -143,6 +158,7 @@ module.exports = {
   browserList,
   browserLoadItem,
   browserSearch,
+  sendMidi,
   HOST,
   PORT,
 };

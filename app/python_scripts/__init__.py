@@ -40,7 +40,7 @@ from _Framework.ControlSurface import ControlSurface
 
 HOST = "127.0.0.1"
 PORT = 54321
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5  # bumped from 4 : adds send_midi method (receive deferred)
 
 # Top-level Browser roots, in the order Live's UI presents them.
 BROWSER_ROOTS = (
@@ -63,6 +63,7 @@ SEARCH_DEFAULT_LIMIT = 50
 # return a result before erroring out.
 MAIN_THREAD_TIMEOUT_S = 30.0
 DRAIN_BATCH_SIZE = 4  # how many queued messages to process per update_display tick
+
 
 
 class Agent4LiveCompanion(ControlSurface):
@@ -205,7 +206,26 @@ class Agent4LiveCompanion(ControlSurface):
                 msg.get("root", ""),
                 int(msg.get("limit", SEARCH_DEFAULT_LIMIT)),
             )
+        if method == "send_midi":
+            return self._handle_send_midi(
+                int(msg.get("status", 0)),
+                int(msg.get("data1", 0)),
+                int(msg.get("data2", 0)),
+            )
         return {"ok": False, "error": "unknown method: " + str(method)}
+
+    def _handle_send_midi(self, status, data1, data2):
+        # Send a 3-byte MIDI message on the Output port assigned to this
+        # Control Surface slot in Live → Preferences → Tempo & MIDI. If the
+        # slot has Output = "None", the message is silently dropped by Live.
+        # We bypass _Framework.ControlSurface._send_midi (which has tricky
+        # inheritance plumbing) and call the C++ instance directly with the
+        # 3-byte tuple — the documented Ableton MidiRemoteScript API.
+        try:
+            self._c_instance.send_midi((status & 0xFF, data1 & 0x7F, data2 & 0x7F))
+            return {"ok": True}
+        except Exception as e:  # pragma: no cover (Live API edge-case)
+            return {"ok": False, "error": "send_midi failed: " + str(e)}
 
     def _browser(self):
         """Shortcut to the Live application's Browser singleton."""

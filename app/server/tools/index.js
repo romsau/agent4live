@@ -19,5 +19,6 @@ module.exports = {
   instruments: require('./instruments'),
   browser: require('./browser'),
   tuning: require('./tuning'),
+  midi: require('./midi'),
   meta: require('./meta'),
 };

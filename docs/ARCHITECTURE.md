@@ -14,7 +14,7 @@ Claude Code / Codex CLI / Gemini CLI / OpenCode
 ┌─────────────────────────────────────────────────────┐
 │  node.script — app/index.js → app/server/index.js   │
 │  • HTTP server + transport MCP Streamable HTTP      │
-│  • 230 outils en 13 familles, file LOM séquentielle │
+│  • 232 outils en 14 familles, file LOM séquentielle │
 │  • Auto-discovery 4 clients (Claude/Codex/…)        │
 │  • SSE streaming via MCP resources                  │
 │  • Sert /ui (jweb) + /ui/state                      │
@@ -73,7 +73,7 @@ agent4live/                (repo root)
   coverage/                rapports Jest (gitignored)
 ```
 
-**Inventaire des 230 outils** : la source de vérité est `grep "defineTool" app/server/tools/*.js`. Pas de listing dupliqué dans la doc — il dériverait à chaque ajout.
+**Inventaire des 232 outils** : la source de vérité est `grep "defineTool" app/server/tools/*.js`. Pas de listing dupliqué dans la doc — il dériverait à chaque ajout.
 
 ---
 

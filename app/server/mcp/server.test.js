@@ -39,6 +39,7 @@ jest.mock('../tools', () => {
     'instruments',
     'browser',
     'tuning',
+    'midi',
     'meta',
   ];
   const result = {};
@@ -131,6 +132,7 @@ describe('registerTools', () => {
       'instruments',
       'browser',
       'tuning',
+      'midi',
       'meta',
     ]) {
       expect(tools[fam].register).toHaveBeenCalledWith(fakeServer);

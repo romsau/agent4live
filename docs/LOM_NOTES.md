@@ -2,7 +2,7 @@
 
 Conventions transverses des outils MCP et catalogue de ce qui n'est volontairement **pas** exposé. Pour la liste des outils existants, lire `app/server/tools/<famille>.js` (source de vérité, toujours à jour) ou `tools/list` du serveur MCP en marche.
 
-**État actuel : 230 outils répartis en 13 familles** (`raw`, `session`, `transport`, `tracks`, `clips`, `scenes`, `arrangement`, `application`, `racks`, `instruments`, `browser`, `tuning`, `meta`).
+**État actuel : 232 outils répartis en 14 familles** (`raw`, `session`, `transport`, `tracks`, `clips`, `scenes`, `arrangement`, `application`, `racks`, `instruments`, `browser`, `tuning`, `midi`, `meta`).
 
 ---
 

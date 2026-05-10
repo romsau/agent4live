@@ -114,6 +114,7 @@ const dedicatedSpecs = [
   ['lomGetSelection', 'lom_get_selection', []],
   ['lomSelectTrack', 'lom_select_track', [3]],
   ['lomSelectScene', 'lom_select_scene', [2]],
+  ['lomSelectDevice', 'lom_select_device', [2, 1]],
   ['lomGetGrooves', 'lom_get_grooves', []],
   ['lomSetClipGroove', 'lom_set_clip_groove', [0, 0, 2]],
   ['lomGetControlSurfaces', 'lom_get_control_surfaces', []],
