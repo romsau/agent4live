@@ -26,10 +26,13 @@
         position: absolute;
         right: 8px;
         bottom: 4px;
+        background: #111;
         color: #555;
         font-size: 8px;
         font-family: 'Courier New', monospace;
         letter-spacing: 0.5px;
+        padding: 1px 4px;
+        border-radius: 2px;
         pointer-events: none;
         z-index: 100;
       }
@@ -54,35 +57,48 @@
         align-items: center;
         gap: 4px;
       }
-      .pnl.narrow {
-        flex: 0.6;
+      /* Cards hug their content. AGENT (clickable) gets a caret + hover bg
+         to signal interactivity at rest ; MCP|LIVEAPI (passive) stays plain.
+         The free space to the right of AGENT is reserved for future cards
+         like LIMITS (rate-limit toggle, Gap B).
+         user-select + cursor:default reset the browser's default text
+         behavior on passive cards (no I-beam, no accidental selection on
+         drag) ; .pnl.clickable below overrides cursor to pointer. */
+      .pnl {
+        flex: 0 0 auto;
+        cursor: default;
+        user-select: none;
+        -webkit-user-select: none;
       }
-      .pnl.wide {
-        flex: 1.6;
-      }
-      #agent-card {
+      .pnl.clickable {
         cursor: pointer;
+        position: relative;
+        padding-right: 16px;
       }
-      #agent-card:hover {
+      .pnl.clickable::after {
+        content: '›';
+        position: absolute;
+        right: 6px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #555;
+        font-size: 11px;
+        line-height: 1;
+      }
+      .pnl.clickable:hover {
         background: #1a1a1a;
+      }
+      .pnl.clickable:hover::after {
+        color: #ccc;
       }
       .lbl {
         font-size: 9px;
         color: #838383;
         letter-spacing: 0.5px;
       }
-      .row {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-      }
-      #s1,
-      #s2,
-      #s3 {
-        margin-left: auto;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+      .sep {
+        color: #555;
+        font-size: 9px;
       }
       #log {
         flex: 1;
@@ -512,17 +528,13 @@
       <div class="hint">If your agent CLI is already running, restart it once after picking.</div>
     </div>
     <div class="hdr">
-      <div class="pnl narrow">
-        <span class="lbl">MCP</span>
-        <span id="s1" class="row"></span>
-      </div>
       <div class="pnl">
-        <span class="lbl">LIVEAPI</span>
-        <span id="s2" class="row"></span>
+        <span class="lbl" id="mcp-lbl">MCP</span>
+        <span class="sep">|</span>
+        <span class="lbl" id="liveapi-lbl">LIVEAPI</span>
       </div>
-      <div class="pnl wide" id="agent-card" title="Edit agent consent">
-        <span class="lbl">AGENT</span>
-        <span id="s3" class="row"></span>
+      <div class="pnl clickable" id="agent-card" title="Edit agent consent">
+        <span class="lbl" id="agent-lbl">no agent</span>
       </div>
     </div>
     <div class="main">
@@ -689,38 +701,23 @@
         // for the device's lifetime, but cheap enough to re-set every tick).
         var versionEl = document.getElementById('version');
         if (versionEl) versionEl.textContent = state.version ? 'v' + state.version : '';
-        // MCP server status (status pushed right by .pu #s1{margin-left:auto}).
-        // Gray for fallback `---` — red is reserved for explicit error states.
-        var mcpStatusEl = document.getElementById('s1');
-        mcpStatusEl.textContent = '';
-        mcpStatusEl.appendChild(createSpan(state.connected ? 'g' : 'd', '●'));
-        mcpStatusEl.appendChild(
-          createSpan(state.connected ? 'g' : 'd', state.connected ? 'ok' : '---'),
-        );
+        // MCP + LIVEAPI : label text carries the status color directly.
+        // Green when connected/ok, gray otherwise. No dot, no inline value —
+        // the color is the information. Red is reserved for explicit errors.
+        document.getElementById('mcp-lbl').className = state.connected ? 'lbl g' : 'lbl d';
+        document.getElementById('liveapi-lbl').className = state.liveApiOk ? 'lbl g' : 'lbl d';
 
-        // LiveAPI status
-        var liveApiStatusEl = document.getElementById('s2');
-        liveApiStatusEl.textContent = '';
-        liveApiStatusEl.appendChild(createSpan(state.liveApiOk ? 'g' : 'd', '●'));
-        liveApiStatusEl.appendChild(
-          createSpan(state.liveApiOk ? 'g' : 'd', state.liveApiOk ? state.latencyMs + 'ms' : '---'),
-        );
-
-        // Selected agent — name of the (single) consented agent, or "none".
-        // The mutex rule in renderConsentModal guarantees at most one consent.
+        // Selected agent — name of the (single) consented agent, or "no agent".
+        // Same color-as-status pattern as MCP|LIVEAPI above. Card itself is
+        // `.pnl.clickable` so it gets the caret + hover bg signaling
+        // interactivity (opens Modal C on click).
         var agents = state.agents || {};
-        var s3El = document.getElementById('s3');
-        s3El.textContent = '';
         var consented = agentDefs.find(function (d) {
           return agents[d[0]] && agents[d[0]].consented;
         });
-        if (consented) {
-          s3El.appendChild(createSpan('g', '●'));
-          s3El.appendChild(createSpan('g', consented[1]));
-        } else {
-          s3El.appendChild(createSpan('d', '●'));
-          s3El.appendChild(createSpan('d', 'none'));
-        }
+        var agentLbl = document.getElementById('agent-lbl');
+        agentLbl.textContent = consented ? consented[1] : 'no agent';
+        agentLbl.className = consented ? 'lbl g' : 'lbl d';
 
         // Cascade: companion install → companion configure → consent.
         // At most one modal is visible at a time. Order matches the boot
@@ -770,23 +767,21 @@
           logEl.className = 'empty';
           var emptyMsg = document.createElement('div');
           emptyMsg.className = 'empty-msg';
-          emptyMsg.textContent = 'Waiting for the first agent call...';
+          emptyMsg.textContent =
+            'Connected and waiting. Prompt in your agent CLI to start working with Live.';
           logEl.appendChild(emptyMsg);
         } else {
           logEl.className = '';
           entries.forEach(function (entry) {
             var row = document.createElement('div');
             row.className = entry.isError ? 'll err' : 'll';
-            row.appendChild(createSpan('d', entry.ts));
+            // Leading dot in gray (same color as the old timestamp it
+            // replaces) — pure visual anchor for line scanning, status-neutral.
+            // The tool name carries the actual status color : blue = ok,
+            // red = error. Trailing "→ ok" / error suffix is dropped.
+            row.appendChild(createSpan('d', '●'));
             row.appendChild(createTextNode(' '));
-            row.appendChild(createSpan('b', entry.tool));
-            row.appendChild(createTextNode(' '));
-            row.appendChild(
-              createSpan(
-                entry.isError ? 'r' : 'g',
-                entry.isError ? entry.result : '→ ' + entry.result,
-              ),
-            );
+            row.appendChild(createSpan(entry.isError ? 'r' : 'b', entry.tool));
             logEl.appendChild(row);
           });
           logEl.scrollTop = logEl.scrollHeight;
