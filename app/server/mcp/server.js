@@ -13,21 +13,9 @@ const {
 
 const { PORT, SERVER_NAME, SERVER_VERSION } = require('../config');
 const { uiState, log } = require('../ui/state');
+const { rejectIfNonLocalOrigin } = require('../auth');
 const tools = require('../tools');
 const sse = require('./sse');
-
-/**
- * CSRF defense — only accept requests whose Origin header points to localhost
- * (or has no Origin at all, which means a non-browser client like an agent
- * CLI).
- *
- * @param {string|undefined} origin - Request's Origin header.
- * @returns {boolean}
- */
-function isLocalOrigin(origin) {
-  if (!origin) return true;
-  return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin);
-}
 
 /**
  * Validate Origin + Bearer token. Writes the appropriate error response and
@@ -38,13 +26,7 @@ function isLocalOrigin(origin) {
  * @returns {boolean}
  */
 function checkAuth(req, res) {
-  const origin = req.headers.origin;
-  if (!isLocalOrigin(origin)) {
-    log('auth: rejected non-local origin ' + origin);
-    res.writeHead(403, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'forbidden_origin' }));
-    return false;
-  }
+  if (rejectIfNonLocalOrigin(req, res)) return false;
   const expected = uiState.token;
   if (!expected) {
     res.writeHead(503, { 'Content-Type': 'application/json' });

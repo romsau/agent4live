@@ -140,13 +140,16 @@ function withMocks(mocks) {
 /**
  * Make a minimal req/res pair for HTTP route testing. `body` (if provided)
  * is exposed as an async iterable of one chunk so handlers using
- * `for await (const c of req)` work transparently.
+ * `for await (const c of req)` work transparently. `headers` defaults to an
+ * empty object so the CSRF guard (which reads `req.headers.origin`) doesn't
+ * crash ; pass `{ origin: '...' }` to simulate a browser request.
  * @param url
  * @param method
  * @param body
+ * @param headers
  */
-function reqres(url, method = 'GET', body) {
-  const req = { url, method };
+function reqres(url, method = 'GET', body, headers = {}) {
+  const req = { url, method, headers };
   if (body !== undefined) {
     const buf = Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
     req[Symbol.asyncIterator] = async function* () {
@@ -958,5 +961,80 @@ describe('shutdown via SIGTERM/SIGINT', () => {
     const sigint = processListeners.SIGINT[0];
     await sigint();
     expect(mocks.teardownDiscovery).not.toHaveBeenCalled();
+  });
+});
+
+// Gap A defense-in-depth: the top-level guard rejects any request whose
+// Origin header points elsewhere than localhost, BEFORE the route dispatcher
+// runs. /mcp keeps its own checkAuth (Origin + Bearer) — the double check is
+// intentional, isolates the MCP transport layer.
+describe('CSRF guard (Gap A)', () => {
+  const EVIL = 'http://evil.com';
+
+  /**
+   * Drive a single request through the boot handler with the given Origin
+   * header. Returns the mocks + the response so the test can assert.
+   * @param url
+   * @param method
+   * @param origin
+   * @param body
+   */
+  function driveWithOrigin(url, method, origin, body) {
+    const mocks = setupMocks();
+    withMocks(mocks);
+    jest.isolateModules(() => require('./index'));
+    const handler = mocks.getHandler();
+    const { req, res } = reqres(url, method, body, { origin });
+    return { mocks, handler, req, res };
+  }
+
+  it.each([
+    ['/mcp', 'POST'],
+    ['/ui', 'GET'],
+    ['/ui/state', 'GET'],
+    ['/preferences', 'GET'],
+    ['/preferences', 'POST'],
+    ['/preferences/agent/claudeCode', 'POST'],
+    ['/preferences/reset', 'POST'],
+    ['/companion/install', 'POST'],
+    ['/companion/recheck', 'POST'],
+    ['/detect', 'POST'],
+    ['/unknown-route', 'GET'],
+  ])('rejects %s %s with 403 when Origin is non-local', async (url, method) => {
+    const { mocks, handler, req, res } = driveWithOrigin(url, method, EVIL);
+    await handler(req, res);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.chunks[0])).toEqual({ error: 'forbidden_origin' });
+    // Guard short-circuits BEFORE the route handler — e.g. handleMCP must
+    // never be invoked, no preference write, no companion install.
+    expect(mocks.handleMCP).not.toHaveBeenCalled();
+    expect(mocks.savePreferences).not.toHaveBeenCalled();
+    expect(mocks.installCompanion).not.toHaveBeenCalled();
+    expect(mocks.detectAgents).toHaveBeenCalledTimes(1); // boot only, not /detect
+    expect(mocks.log).toHaveBeenCalledWith(expect.stringContaining('rejected non-local origin'));
+  });
+
+  it('accepts a local Origin and routes the request normally', async () => {
+    const { mocks, handler, req, res } = driveWithOrigin(
+      '/preferences',
+      'GET',
+      'http://localhost:23456',
+    );
+    await handler(req, res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.log).not.toHaveBeenCalledWith(
+      expect.stringContaining('rejected non-local origin'),
+    );
+  });
+
+  it('accepts an absent Origin (CLI / curl path)', async () => {
+    const mocks = setupMocks();
+    withMocks(mocks);
+    jest.isolateModules(() => require('./index'));
+    const handler = mocks.getHandler();
+    // reqres() default — no `origin` header at all.
+    const { req, res } = reqres('/preferences', 'GET');
+    await handler(req, res);
+    expect(res.statusCode).toBe(200);
   });
 });

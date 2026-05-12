@@ -54,6 +54,7 @@ const COMPANION_PY_SOURCE = require('../python_scripts/__init__.py');
 const COMPANION_PYC_BYTES = require('../python_scripts/__init__.pyc');
 const { lomGet, lomScanPeers } = require('./lom');
 const { handleMCP } = require('./mcp/server');
+const { rejectIfNonLocalOrigin } = require('./auth');
 
 // First thing the node script does: push a neutral Loading placeholder to the
 // jweb. This overrides any stale URL the jweb might still hold (e.g. a passive
@@ -69,6 +70,11 @@ const UI_HTML = buildUiHtml();
 
 const httpServer = http.createServer((req, res) => {
   log(`${req.method} ${req.url}`);
+  // Gap A — CSRF defense-in-depth : reject non-local Origin BEFORE routing so
+  // every endpoint (including /preferences*, /companion/*, /detect, /ui*) is
+  // uniformly protected. /mcp's checkAuth still runs its own Origin check ;
+  // the double-check is harmless and keeps that layer self-contained.
+  if (rejectIfNonLocalOrigin(req, res)) return;
   if (req.url === '/mcp') {
     handleMCP(req, res).catch((err) => {
       log(`Request error: ${err.message}`);
