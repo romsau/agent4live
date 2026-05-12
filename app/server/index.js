@@ -56,6 +56,7 @@ const COMPANION_PYC_BYTES = require('../python_scripts/__init__.pyc');
 const { lomGet, lomScanPeers } = require('./lom');
 const { handleMCP } = require('./mcp/server');
 const { rejectIfNonLocalOrigin } = require('./auth');
+const { auditLog, hashToken } = require('./audit');
 
 // First thing the node script does: push a neutral Loading placeholder to the
 // jweb. This overrides any stale URL the jweb might still hold (e.g. a passive
@@ -284,6 +285,7 @@ async function handleRotateToken(req, res) {
     res.end(JSON.stringify({ error: 'unauthorized' }));
     return;
   }
+  const oldToken = uiState.token;
   const newToken = regenerateToken(PORT);
   if (!newToken) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -291,6 +293,10 @@ async function handleRotateToken(req, res) {
     return;
   }
   uiState.token = newToken;
+  auditLog('rotate-token', {
+    oldTokenHash: hashToken(oldToken),
+    newTokenHash: hashToken(newToken),
+  });
   // Best-effort propagation to consented CLIs ; if one CLI's config write
   // fails, the others still get updated. The user can re-trigger if needed.
   await setupConsentedClients(loadPreferences(), `http://127.0.0.1:${PORT}/mcp`, newToken);

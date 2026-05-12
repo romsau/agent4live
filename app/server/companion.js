@@ -19,6 +19,7 @@ const path = require('path');
 const os = require('os');
 
 const { isAlive } = require('./python');
+const { auditLog } = require('./audit');
 
 const REMOTE_SCRIPTS_DIR = path.join(
   os.homedir(),
@@ -68,6 +69,7 @@ async function installCompanion(pySource, pycBytes) {
     return { ok: false, error: `failed to write companion files: ${err.message}` };
   }
 
+  auditLog('companion-install', { path: SCRIPT_DIR });
   return { ok: true };
 }
 

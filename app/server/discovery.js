@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const { auditLog, hashToken } = require('./audit');
 const { execFileSync, execFile } = require('child_process');
 const {
   SERVER_NAME,
@@ -705,22 +706,25 @@ function uninstallSkill(agent) {
  * @returns {Promise<void>}
  */
 function registerOne(agent, url, token) {
+  const onSuccess = () => auditLog('register', { agent, url, tokenHash: hashToken(token) });
   switch (agent) {
     case 'claudeCode':
       registerWithClaude(url, token);
       installSkill(agent);
+      onSuccess();
       return Promise.resolve();
     case 'opencode':
       registerOpenCode(url, token);
+      onSuccess();
       return Promise.resolve();
     case 'codex':
-      return withRegistrationTimeout(registerCodex(url, token), 'codex').catch((err) =>
-        log(`codex registration error: ${err.message}`),
-      );
+      return withRegistrationTimeout(registerCodex(url, token), 'codex')
+        .then(onSuccess)
+        .catch((err) => log(`codex registration error: ${err.message}`));
     case 'gemini':
-      return withRegistrationTimeout(registerGemini(url, token), 'gemini').catch((err) =>
-        log(`gemini registration error: ${err.message}`),
-      );
+      return withRegistrationTimeout(registerGemini(url, token), 'gemini')
+        .then(onSuccess)
+        .catch((err) => log(`gemini registration error: ${err.message}`));
     default:
       throw new Error(`unknown agent: ${agent}`);
   }
@@ -734,16 +738,18 @@ function registerOne(agent, url, token) {
  * @returns {Promise<void>}
  */
 function unregisterOne(agent) {
+  const onSuccess = () => auditLog('unregister', { agent });
   switch (agent) {
     case 'claudeCode':
       uninstallSkill(agent);
-      return unregisterFromClaude();
+      return unregisterFromClaude().then(onSuccess);
     case 'codex':
-      return unregisterCodex();
+      return unregisterCodex().then(onSuccess);
     case 'gemini':
-      return unregisterGemini();
+      return unregisterGemini().then(onSuccess);
     case 'opencode':
       unregisterOpenCode();
+      onSuccess();
       return Promise.resolve();
     default:
       throw new Error(`unknown agent: ${agent}`);
