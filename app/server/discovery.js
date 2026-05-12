@@ -106,6 +106,35 @@ function detectAgents() {
 }
 
 /**
+ * Persist endpoint.json with the given token. Returns true on success, false
+ * on filesystem failure. Always writes mode 0o600 ; a double-write (`mode` +
+ * `chmodSync`) covers both "file freshly created" and "file pre-existed
+ * with looser perms".
+ *
+ * @param {number} port
+ * @param {string} token
+ * @returns {boolean}
+ */
+function writeEndpointFile(port, token) {
+  const url = `http://127.0.0.1:${port}/mcp`;
+  try {
+    fs.mkdirSync(ENDPOINT_DIR, { recursive: true });
+    fs.writeFileSync(
+      ENDPOINT_FILE,
+      JSON.stringify({ url, token, version: '0.2.0', pid: process.pid }),
+      { mode: 0o600 },
+    );
+    try {
+      fs.chmodSync(ENDPOINT_FILE, 0o600);
+    } catch (_) {}
+    return true;
+  } catch (err) {
+    log(`Discovery file write failed: ${err.message}`);
+    return false;
+  }
+}
+
+/**
  * Write endpoint.json (URL + token). Returns the token so the caller can push
  * it to uiState. Does NOT register with any CLI — that's now opt-in via
  * setupConsentedClients() / registerOne(), gated by user consent.
@@ -114,27 +143,24 @@ function detectAgents() {
  * @returns {string|null} Token, or null if the endpoint file write failed.
  */
 function setupDiscovery(port) {
-  const url = `http://127.0.0.1:${port}/mcp`;
   const token = loadOrGenerateToken();
+  return writeEndpointFile(port, token) ? token : null;
+}
 
-  try {
-    fs.mkdirSync(ENDPOINT_DIR, { recursive: true });
-    fs.writeFileSync(
-      ENDPOINT_FILE,
-      JSON.stringify({ url, token, version: '0.2.0', pid: process.pid }),
-      { mode: 0o600 },
-    );
-    // writeFileSync's `mode` is honored only when the file is created.
-    // Force restrictive perms even if the file pre-existed with 644.
-    try {
-      fs.chmodSync(ENDPOINT_FILE, 0o600);
-    } catch (_) {}
-  } catch (err) {
-    log(`Discovery file write failed: ${err.message}`);
-    return null;
-  }
-
-  return token;
+/**
+ * Force-generate a fresh Bearer token and persist it. Caller is expected to
+ * push the new token to uiState and propagate to CLI configs via
+ * setupConsentedClients() — this function only handles disk persistence.
+ *
+ * Used by POST /preferences/rotate-token (Gap D) to let a user invalidate
+ * a leaked token without restarting the device.
+ *
+ * @param {number} port
+ * @returns {string|null} New token, or null if disk write failed.
+ */
+function regenerateToken(port) {
+  const token = crypto.randomBytes(TOKEN_BYTES).toString('hex');
+  return writeEndpointFile(port, token) ? token : null;
 }
 
 /**
@@ -728,6 +754,7 @@ module.exports = {
   detectAgents,
   detectClaude,
   setupDiscovery,
+  regenerateToken,
   teardownDiscovery,
   setupConsentedClients,
   registerOne,

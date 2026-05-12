@@ -232,6 +232,51 @@ describe('setupDiscovery', () => {
   });
 });
 
+describe('regenerateToken (Gap D)', () => {
+  it('always generates a fresh token even when endpoint.json has a valid one', () => {
+    // Pre-existing valid token would normally be reused by setupDiscovery —
+    // regenerateToken must IGNORE it and always emit a new one.
+    fs.existsSync.mockImplementation((p) => p === ENDPOINT_FILE);
+    fs.readFileSync.mockReturnValue(JSON.stringify({ token: 'a'.repeat(32) }));
+    fs.mkdirSync.mockImplementation(() => {});
+    fs.writeFileSync.mockImplementation(() => {});
+    fs.chmodSync.mockImplementation(() => {});
+    const t1 = discovery.regenerateToken(1);
+    const t2 = discovery.regenerateToken(1);
+    expect(t1).toMatch(/^[a-f0-9]{32}$/);
+    expect(t1).not.toBe('a'.repeat(32));
+    expect(t2).not.toBe(t1);
+  });
+
+  it('writes endpoint.json with the new token + port URL + 0o600 mode', () => {
+    fs.existsSync.mockReturnValue(false);
+    fs.mkdirSync.mockImplementation(() => {});
+    fs.writeFileSync.mockImplementation(() => {});
+    fs.chmodSync.mockImplementation(() => {});
+    const token = discovery.regenerateToken(8765);
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      ENDPOINT_FILE,
+      expect.stringContaining(`"url":"http://127.0.0.1:8765/mcp"`),
+      { mode: 0o600 },
+    );
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      ENDPOINT_FILE,
+      expect.stringContaining(`"token":"${token}"`),
+      { mode: 0o600 },
+    );
+    expect(fs.chmodSync).toHaveBeenCalledWith(ENDPOINT_FILE, 0o600);
+  });
+
+  it('returns null and logs when the write fails (disk full, perms, etc.)', () => {
+    fs.existsSync.mockReturnValue(false);
+    fs.mkdirSync.mockImplementation(() => {
+      throw new Error('ENOSPC');
+    });
+    expect(discovery.regenerateToken(1)).toBeNull();
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('Discovery file write failed'));
+  });
+});
+
 describe('registerWithClaude (via registerOne)', () => {
   const claudeJson = path.join(HOME, '.claude.json');
   const TOKEN_HEX = 'a'.repeat(32);

@@ -28,6 +28,7 @@ const {
 const {
   detectAgents,
   setupDiscovery,
+  regenerateToken,
   teardownDiscovery,
   setupConsentedClients,
   registerOne,
@@ -141,6 +142,10 @@ const httpServer = http.createServer((req, res) => {
     handlePreferencesReset(res).catch((err) => prefsErrorReply(res, 500, err));
     return;
   }
+  if (req.url === '/preferences/rotate-token' && req.method === 'POST') {
+    handleRotateToken(req, res).catch((err) => prefsErrorReply(res, 500, err));
+    return;
+  }
   if (req.url === '/companion/install' && req.method === 'POST') {
     handleCompanionInstall(res).catch((err) => companionErrorReply(res, 500, err));
     return;
@@ -250,6 +255,53 @@ async function handlePreferencesAgent(agent, req, res) {
   savePreferences(prefs);
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(prefs));
+}
+
+/**
+ * POST /preferences/rotate-token (Gap D) — generate a fresh Bearer token,
+ * persist it to endpoint.json, propagate to every consented CLI config.
+ *
+ * Auth : the caller MUST present the CURRENT Bearer (`Authorization: Bearer
+ * <uiState.token>`), checked explicitly here on top of the top-level Origin
+ * guard. Without this defense-in-depth, any local process that can hit
+ * loopback could rotate the token and lock out the legitimate user (worse :
+ * a local attacker could seize the new token from the response and gain
+ * /mcp access from a state where they had nothing).
+ *
+ * After rotation, in-flight CLI sessions still hold the OLD token in memory.
+ * Their next /mcp request will get 401 — the user must restart their CLI for
+ * it to re-read its config (which now has the new token).
+ *
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse} res
+ */
+async function handleRotateToken(req, res) {
+  const auth = req.headers.authorization || '';
+  const bearerMatch = auth.match(/^Bearer (.+)$/);
+  if (!bearerMatch || !uiState.token || bearerMatch[1] !== uiState.token) {
+    log('rotate-token: rejected ' + (bearerMatch ? 'invalid' : 'missing') + ' bearer');
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'unauthorized' }));
+    return;
+  }
+  const newToken = regenerateToken(PORT);
+  if (!newToken) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'rotation_failed' }));
+    return;
+  }
+  uiState.token = newToken;
+  // Best-effort propagation to consented CLIs ; if one CLI's config write
+  // fails, the others still get updated. The user can re-trigger if needed.
+  await setupConsentedClients(loadPreferences(), `http://127.0.0.1:${PORT}/mcp`, newToken);
+  log('rotate-token: success');
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(
+    JSON.stringify({
+      ok: true,
+      message: 'Token rotated. Restart your agent CLI to pick up the new token.',
+    }),
+  );
 }
 
 /**

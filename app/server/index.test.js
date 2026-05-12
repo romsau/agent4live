@@ -47,6 +47,7 @@ function setupMocks() {
     emitLoadingUi: jest.fn(),
     detectAgents: jest.fn(),
     setupDiscovery: jest.fn(() => 'tok-1'),
+    regenerateToken: jest.fn(() => 'tok-rotated'),
     teardownDiscovery: jest.fn(() => Promise.resolve()),
     setupConsentedClients: jest.fn(() => Promise.resolve()),
     registerOne: jest.fn(() => Promise.resolve()),
@@ -100,6 +101,7 @@ function withMocks(mocks) {
   jest.doMock('./discovery', () => ({
     detectAgents: mocks.detectAgents,
     setupDiscovery: mocks.setupDiscovery,
+    regenerateToken: mocks.regenerateToken,
     teardownDiscovery: mocks.teardownDiscovery,
     setupConsentedClients: mocks.setupConsentedClients,
     registerOne: mocks.registerOne,
@@ -667,6 +669,96 @@ describe('Preferences endpoints', () => {
       throw new Error('boom');
     });
     const { req, res } = reqres('/preferences/reset', 'POST');
+    handler(req, res);
+    await flush();
+    expect(res.statusCode).toBe(500);
+  });
+
+  it('POST /preferences/rotate-token with valid Bearer rotates + propagates', async () => {
+    const { mocks, handler } = bootAndGetHandler();
+    // setupDiscovery in setupMocks returns 'tok-1' → activeBoot set uiState.token.
+    const { req, res } = reqres('/preferences/rotate-token', 'POST', undefined, {
+      authorization: 'Bearer tok-1',
+    });
+    handler(req, res);
+    await flush();
+    expect(mocks.regenerateToken).toHaveBeenCalledWith(12345);
+    // Token rotation should bump uiState + propagate to consented CLIs with
+    // the new token. (boot's setupConsentedClients is in a setTimeout that
+    // we deliberately don't advance — we only assert the rotation call.)
+    expect(mocks.uiState.token).toBe('tok-rotated');
+    // Assert propagation : the LAST call carries the rotated token + the
+    // device URL. First arg is whatever loadPreferences returned (null per
+    // setupMocks default — fine, the test just verifies the token plumbing).
+    const lastCall = mocks.setupConsentedClients.mock.calls.at(-1);
+    expect(lastCall[1]).toBe('http://127.0.0.1:12345/mcp');
+    expect(lastCall[2]).toBe('tok-rotated');
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.chunks[0]);
+    expect(body.ok).toBe(true);
+    expect(body.message).toMatch(/Restart your agent CLI/);
+    // Successful rotation does NOT leak the new token into the response body.
+    expect(JSON.stringify(body)).not.toContain('tok-rotated');
+  });
+
+  it('POST /preferences/rotate-token rejects a missing Bearer with 401', async () => {
+    const { mocks, handler } = bootAndGetHandler();
+    const { req, res } = reqres('/preferences/rotate-token', 'POST', undefined, {});
+    handler(req, res);
+    await flush();
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.chunks[0]).error).toBe('unauthorized');
+    expect(mocks.regenerateToken).not.toHaveBeenCalled();
+    expect(mocks.log).toHaveBeenCalledWith(expect.stringContaining('missing bearer'));
+  });
+
+  it('POST /preferences/rotate-token rejects an invalid Bearer with 401', async () => {
+    const { mocks, handler } = bootAndGetHandler();
+    const { req, res } = reqres('/preferences/rotate-token', 'POST', undefined, {
+      authorization: 'Bearer wrong-token',
+    });
+    handler(req, res);
+    await flush();
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.chunks[0]).error).toBe('unauthorized');
+    expect(mocks.regenerateToken).not.toHaveBeenCalled();
+    expect(mocks.log).toHaveBeenCalledWith(expect.stringContaining('invalid bearer'));
+  });
+
+  it('POST /preferences/rotate-token rejects when uiState.token is null (boot race)', async () => {
+    const mocks = setupMocks();
+    mocks.setupDiscovery.mockReturnValue(null); // simulates boot before discovery file write
+    withMocks(mocks);
+    jest.isolateModules(() => require('./index'));
+    mocks.fakeServer.listen.mock.calls[0][2]();
+    const handler = mocks.getHandler();
+    const { req, res } = reqres('/preferences/rotate-token', 'POST', undefined, {
+      authorization: 'Bearer anything',
+    });
+    handler(req, res);
+    await flush();
+    expect(res.statusCode).toBe(401);
+    expect(mocks.regenerateToken).not.toHaveBeenCalled();
+  });
+
+  it('POST /preferences/rotate-token returns 500 when disk write fails', async () => {
+    const { mocks, handler } = bootAndGetHandler();
+    mocks.regenerateToken.mockReturnValue(null);
+    const { req, res } = reqres('/preferences/rotate-token', 'POST', undefined, {
+      authorization: 'Bearer tok-1',
+    });
+    handler(req, res);
+    await flush();
+    expect(res.statusCode).toBe(500);
+    expect(JSON.parse(res.chunks[0]).error).toBe('rotation_failed');
+  });
+
+  it('POST /preferences/rotate-token surfaces unexpected errors as 500 via prefsErrorReply', async () => {
+    const { mocks, handler } = bootAndGetHandler();
+    mocks.setupConsentedClients.mockReturnValue(Promise.reject(new Error('network boom')));
+    const { req, res } = reqres('/preferences/rotate-token', 'POST', undefined, {
+      authorization: 'Bearer tok-1',
+    });
     handler(req, res);
     await flush();
     expect(res.statusCode).toBe(500);
