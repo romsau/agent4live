@@ -1,13 +1,13 @@
 'use strict';
 
 jest.mock('fs');
-jest.mock('./python', () => ({ isAlive: jest.fn() }));
+jest.mock('./bridge', () => ({ isAlive: jest.fn() }));
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { isAlive } = require('./python');
-const companion = require('./companion');
+const { isAlive } = require('./bridge');
+const extension = require('./install');
 
 const SCRIPT_PY = path.join(
   os.homedir(),
@@ -32,10 +32,10 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-describe('getCompanionStatus', () => {
+describe('getExtensionStatus', () => {
   it('script absent → scriptInstalled=false, pingOk=false (no ping attempted)', async () => {
     fs.existsSync.mockReturnValue(false);
-    expect(await companion.getCompanionStatus()).toEqual({
+    expect(await extension.getExtensionStatus()).toEqual({
       scriptInstalled: false,
       pingOk: false,
     });
@@ -45,7 +45,7 @@ describe('getCompanionStatus', () => {
   it('script present + ping ok → both true', async () => {
     fs.existsSync.mockReturnValue(true);
     isAlive.mockResolvedValue(true);
-    expect(await companion.getCompanionStatus()).toEqual({
+    expect(await extension.getExtensionStatus()).toEqual({
       scriptInstalled: true,
       pingOk: true,
     });
@@ -54,14 +54,14 @@ describe('getCompanionStatus', () => {
   it('script present + ping ko → scriptInstalled=true, pingOk=false', async () => {
     fs.existsSync.mockReturnValue(true);
     isAlive.mockResolvedValue(false);
-    expect(await companion.getCompanionStatus()).toEqual({
+    expect(await extension.getExtensionStatus()).toEqual({
       scriptInstalled: true,
       pingOk: false,
     });
   });
 });
 
-describe('installCompanion', () => {
+describe('installExtension', () => {
   const PY = '# python source';
   const PYC = new Uint8Array([0xa7, 0x0d, 0x0d, 0x0a, 0x01, 0x02]);
 
@@ -72,7 +72,7 @@ describe('installCompanion', () => {
   });
 
   it('writes the .py + .pyc and returns ok', async () => {
-    const r = await companion.installCompanion(PY, PYC);
+    const r = await extension.installExtension(PY, PYC);
     expect(r).toEqual({ ok: true });
     expect(fs.writeFileSync).toHaveBeenCalledWith(SCRIPT_PY, PY, 'utf8');
     expect(fs.writeFileSync).toHaveBeenCalledWith(SCRIPT_PYC, expect.any(Buffer));
@@ -85,7 +85,7 @@ describe('installCompanion', () => {
     fs.writeFileSync.mockImplementation(() => {
       throw new Error('disk full');
     });
-    const r = await companion.installCompanion(PY, PYC);
+    const r = await extension.installExtension(PY, PYC);
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/disk full/);
   });
@@ -93,7 +93,7 @@ describe('installCompanion', () => {
   it('creates Remote Scripts dir if missing', async () => {
     fs.existsSync.mockReturnValue(false);
     fs.mkdirSync.mockImplementation(() => {});
-    const r = await companion.installCompanion(PY, PYC);
+    const r = await extension.installExtension(PY, PYC);
     expect(r.ok).toBe(true);
     expect(fs.mkdirSync).toHaveBeenCalledWith(expect.stringContaining('Remote Scripts'), {
       recursive: true,
@@ -105,7 +105,7 @@ describe('installCompanion', () => {
     fs.mkdirSync.mockImplementation(() => {
       throw new Error('EACCES');
     });
-    const r = await companion.installCompanion(PY, PYC);
+    const r = await extension.installExtension(PY, PYC);
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/cannot create/);
   });

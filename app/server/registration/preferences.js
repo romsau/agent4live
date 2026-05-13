@@ -35,7 +35,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { SERVER_NAME } = require('./config');
+const { SERVER_NAME } = require('../config');
 
 const PREFERENCES_DIR = path.join(os.homedir(), '.agent4live-ableton-mcp');
 const PREFERENCES_FILE = path.join(PREFERENCES_DIR, 'preferences.json');

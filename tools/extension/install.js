@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// Manual installer for the agent4live Python companion (POC phase 1).
+// Manual installer for the agent4live Python extension (POC phase 1).
 //
 // Copies app/python_scripts/ to the User Library Remote Scripts folder:
 //   ~/Music/Ableton/User Library/Remote Scripts/agent4live/
@@ -12,8 +12,8 @@
 // works in recent Live 12 builds — empirically verified on 12.3.8.
 //
 // Usage:
-//   node tools/companion/install.js
-//   node tools/companion/install.js --uninstall
+//   node tools/extension/install.js
+//   node tools/extension/install.js --uninstall
 
 const fs = require('fs');
 const path = require('path');
@@ -120,7 +120,7 @@ function main() {
   console.log('  1. (Re)start Ableton Live');
   console.log('  2. Preferences → Link/Tempo/MIDI → Control Surface dropdown → "agent4live"');
   console.log('  3. MIDI in/out for that slot: leave at "None"');
-  console.log('  4. Test the channel:  node tools/companion/ping.js');
+  console.log('  4. Test the channel:  node tools/extension/ping.js');
 }
 
 /* istanbul ignore if -- CLI entry guard. */

@@ -36,7 +36,7 @@ const EXTERNAL = [
 ];
 
 const { concat: concatLomRouter } = require('./concat-lom');
-const { compile: compileCompanionPyc } = require('./compile-companion-pyc');
+const { compile: compileExtensionPyc } = require('./compile-extension-pyc');
 
 /**
  * Build the device for distribution: regenerate `app/lom_router.js` from
@@ -52,10 +52,10 @@ async function main() {
   //     concatenated alphabetically (00_, 10_, ...) into the monolithic output.
   concatLomRouter();
 
-  // 0b. Compile the Python companion to .pyc with python3.11 so esbuild can
+  // 0b. Compile the Python extension to .pyc with python3.11 so esbuild can
   //     embed it as raw bytes via the binary loader. End users never see
   //     python — only the dev box needs python3.11 at build time.
-  compileCompanionPyc();
+  compileExtensionPyc();
 
   // 1. Bundle app/index.js (the trampoline, which requires ./server/*) + SDK
   //    into one CJS file. esbuild follows the require chain so the whole
@@ -71,9 +71,9 @@ async function main() {
     // server/ui/state.js does `require('./active.html')` — text loader turns
     // the file content into a string literal in the bundle, so the HTML is
     // embedded and Freeze Device only has to embed index.js itself.
-    // Same trick for the Python companion : the .py source ships as text
+    // Same trick for the Python extension : the .py source ships as text
     // (traceability + version diffability) and the .pyc as binary (Live 12
-    // doesn't load .py source, only .pyc — see compile-companion-pyc.js).
+    // doesn't load .py source, only .pyc — see compile-extension-pyc.js).
     loader: { '.html': 'text', '.py': 'text', '.pyc': 'binary', '.md': 'text' },
     write: false,
     logLevel: 'warning',

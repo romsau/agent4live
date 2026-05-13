@@ -52,7 +52,7 @@ function findPython311() {
 }
 
 /**
- * Compile the companion source into a .pyc next to it. Idempotent — overwrites
+ * Compile the extension source into a .pyc next to it. Idempotent — overwrites
  * the existing .pyc each call.
  */
 function compile() {

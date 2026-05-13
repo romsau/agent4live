@@ -7,7 +7,7 @@ const { lomGet } = require('../lom');
  * Register the tuning-systems tools (Live 12+) on the MCP server.
  *
  * Tuning Systems live under `live_set tuning_system` in the LOM. They are
- * available in Max [js] as plain LOM properties, so no companion is needed —
+ * available in Max [js] as plain LOM properties, so no extension is needed —
  * each tool here is a thin `lomGet` wrapper. The tuning system is read-only :
  * Live exposes the active system's metadata for inspection (microtonal grids,
  * relative cents per note, reference pitch). Switching tuning systems happens

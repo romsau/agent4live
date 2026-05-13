@@ -36,13 +36,13 @@ const allDetectedNotConsented = {
   gemini: { detected: true, registered: false, consented: false },
 };
 
-// Companion lifecycle snapshots. The cascade renders modal A (install) when
+// Extension lifecycle snapshots. The cascade renders modal A (install) when
 // scriptInstalled=false, modal B (configure Preferences) when script is in
 // place but pingOk=false, and falls through to consent / normal view when both
 // are true.
-const companionReady = { scriptInstalled: true, pingOk: true };
-const companionAbsent = { scriptInstalled: false, pingOk: false };
-const companionScriptOnly = { scriptInstalled: true, pingOk: false };
+const extensionReady = { scriptInstalled: true, pingOk: true };
+const extensionAbsent = { scriptInstalled: false, pingOk: false };
+const extensionScriptOnly = { scriptInstalled: true, pingOk: false };
 
 const sampleLogs = [
   { ts: '14:23:01', tool: 'set_tempo(120)', result: 'ok', isError: false },
@@ -103,7 +103,7 @@ module.exports = {
     latencyMs: 12,
     logs: sampleLogs.slice(0, 3),
     agents: allGreenAgents,
-    companionStatus: companionReady,
+    extensionStatus: extensionReady,
   },
 
   // Post-onboarding "device idle" preview — Claude Code consented, MCP+LIVEAPI
@@ -119,7 +119,7 @@ module.exports = {
     latencyMs: 12,
     logs: [],
     agents: claudeConsented,
-    companionStatus: companionReady,
+    extensionStatus: extensionReady,
   },
 
   'log-saturated': {
@@ -129,7 +129,7 @@ module.exports = {
     latencyMs: 18,
     logs: genSaturatedLogs(),
     agents: allGreenAgents,
-    companionStatus: companionReady,
+    extensionStatus: extensionReady,
   },
 
   'passive-warning': {
@@ -141,7 +141,7 @@ module.exports = {
     latencyMs: 0,
     logs: [],
     agents: allRedAgents,
-    companionStatus: companionReady,
+    extensionStatus: extensionReady,
   },
 
   'passive-warning-no-track': {
@@ -153,7 +153,7 @@ module.exports = {
     latencyMs: 0,
     logs: [],
     agents: allRedAgents,
-    companionStatus: companionReady,
+    extensionStatus: extensionReady,
   },
 
   // Welcome modal — first boot, no consent yet, three of four agents detected.
@@ -172,7 +172,7 @@ module.exports = {
       opencode: { detected: true, registered: false, consented: false },
     },
     firstBoot: true,
-    companionStatus: companionReady,
+    extensionStatus: extensionReady,
   },
 
   // All four agents detected → modal lets the user pick any subset.
@@ -186,14 +186,14 @@ module.exports = {
     logs: [],
     agents: allDetectedNotConsented,
     firstBoot: true,
-    companionStatus: companionReady,
+    extensionStatus: extensionReady,
   },
 
-  // Modal "Restart Live" — companion vient d'être installé (clic sur INSTALL
+  // Modal "Restart Live" — extension vient d'être installé (clic sur INSTALL
   // a réussi), Live n'a pas encore été redémarré donc le ping n'aboutit
   // toujours pas. justInstalled=true verrouille l'UI sur ce modal jusqu'au
   // reload de page (= restart Live qui re-drop le device en pratique).
-  'companion-restart-pending': {
+  'extension-restart-pending': {
     mode: 'active',
     activePeer: null,
     connected: true,
@@ -203,12 +203,12 @@ module.exports = {
     logs: [],
     agents: allRedAgents,
     firstBoot: true,
-    companionStatus: companionScriptOnly,
+    extensionStatus: extensionScriptOnly,
     justInstalled: true,
   },
 
-  // Modal A — companion script not yet installed in User Library.
-  'companion-needs-install': {
+  // Modal A — extension script not yet installed in User Library.
+  'extension-needs-install': {
     mode: 'active',
     activePeer: null,
     connected: true,
@@ -218,11 +218,11 @@ module.exports = {
     logs: [],
     agents: allRedAgents,
     firstBoot: true,
-    companionStatus: companionAbsent,
+    extensionStatus: extensionAbsent,
   },
 
   // Modal B — script installed but ping ko (Preferences not configured yet).
-  'companion-needs-config': {
+  'extension-needs-config': {
     mode: 'active',
     activePeer: null,
     connected: true,
@@ -232,6 +232,6 @@ module.exports = {
     logs: [],
     agents: allRedAgents,
     firstBoot: true,
-    companionStatus: companionScriptOnly,
+    extensionStatus: extensionScriptOnly,
   },
 };

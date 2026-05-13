@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 'use strict';
 
-// Probe the agent4live Python companion. Prints OK + protocol version on
+// Probe the agent4live Python extension. Prints OK + protocol version on
 // success, the error otherwise. Useful to sanity-check the channel before
 // touching the runtime device.
 //
-// Usage:  node tools/companion/ping.js
+// Usage:  node tools/extension/ping.js
 
 const path = require('path');
-const { ping } = require(path.resolve(__dirname, '..', '..', 'app', 'server', 'python.js'));
+const { ping } = require(
+  path.resolve(__dirname, '..', '..', 'app', 'server', 'extension', 'bridge.js'),
+);
 
 /**
  * Wrap `ping()` for CLI use: pretty-print + exit code. Exposed so the test
@@ -23,7 +25,7 @@ async function runPing(io) {
   const exit = (io && io.exit) || process.exit;
   try {
     const r = await ping();
-    log('✓ companion alive:', JSON.stringify(r));
+    log('✓ extension alive:', JSON.stringify(r));
     exit(0);
   } catch (err) {
     error('✗', err.message);

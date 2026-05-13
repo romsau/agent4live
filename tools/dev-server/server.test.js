@@ -240,13 +240,13 @@ describe('makeHandler', () => {
     expect(JSON.parse(res.chunks[0])).toEqual({ active: 'alt', names: ['default', 'alt'] });
   });
 
-  it('/companion/recheck POST → echoes the active fixture companionStatus', () => {
+  it('/extension/recheck POST → echoes the active fixture extensionStatus', () => {
     const fixture = {
       mode: 'active',
-      companionStatus: { scriptInstalled: true, pingOk: false },
+      extensionStatus: { scriptInstalled: true, pingOk: false },
     };
     const { handler } = setup({ fixtures: { default: fixture } });
-    const { req, res } = reqres('/companion/recheck', 'POST');
+    const { req, res } = reqres('/extension/recheck', 'POST');
     handler(req, res);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.chunks[0])).toEqual({
@@ -255,23 +255,23 @@ describe('makeHandler', () => {
     });
   });
 
-  it('/companion/recheck falls back to default fixture when activeFixture missing', () => {
+  it('/extension/recheck falls back to default fixture when activeFixture missing', () => {
     const fixture = {
       mode: 'active',
-      companionStatus: { scriptInstalled: false, pingOk: false },
+      extensionStatus: { scriptInstalled: false, pingOk: false },
     };
     const { handler } = setup({
       fixtures: { default: fixture },
       activeFixture: 'nonexistent',
     });
-    const { req, res } = reqres('/companion/recheck', 'POST');
+    const { req, res } = reqres('/extension/recheck', 'POST');
     handler(req, res);
     expect(JSON.parse(res.chunks[0]).status).toEqual({ scriptInstalled: false, pingOk: false });
   });
 
-  it('/companion/install POST → ok with scriptInstalled=true, pingOk=false', () => {
+  it('/extension/install POST → ok with scriptInstalled=true, pingOk=false', () => {
     const { handler } = setup();
-    const { req, res } = reqres('/companion/install', 'POST');
+    const { req, res } = reqres('/extension/install', 'POST');
     handler(req, res);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.chunks[0])).toEqual({

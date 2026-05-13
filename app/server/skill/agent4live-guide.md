@@ -1,6 +1,6 @@
 # agent4live — Quick reference for agents
 
-You're connected to **agent4live**, an MCP server controlling the user's Ableton Live session in real time. 230 tools, single Python companion for Browser ops.
+You're connected to **agent4live**, an MCP server controlling the user's Ableton Live session in real time. 230 tools, single Python extension for Browser ops.
 
 ## Operating mode
 

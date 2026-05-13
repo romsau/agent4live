@@ -12,7 +12,7 @@ describe('fixtures', () => {
       'passive-warning-no-track',
       'consent-modal-mixed',
       'consent-modal-all-detected',
-      'companion-restart-pending',
+      'extension-restart-pending',
     ];
     for (const k of expected) {
       expect(fixtures[k]).toBeDefined();

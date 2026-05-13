@@ -1,7 +1,7 @@
 'use strict';
 
 jest.mock('fs');
-jest.mock('./config', () => ({ SERVER_NAME: 'agent4live-ableton' }));
+jest.mock('../config', () => ({ SERVER_NAME: 'agent4live-ableton' }));
 
 const fs = require('fs');
 const path = require('path');

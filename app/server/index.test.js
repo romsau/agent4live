@@ -70,11 +70,12 @@ function setupMocks() {
     fs: {
       unlinkSync: jest.fn(),
     },
-    getCompanionStatus: jest.fn(() => Promise.resolve({ scriptInstalled: false, pingOk: false })),
-    installCompanion: jest.fn(() => Promise.resolve({ ok: true })),
+    getExtensionStatus: jest.fn(() => Promise.resolve({ scriptInstalled: false, pingOk: false })),
+    installExtension: jest.fn(() => Promise.resolve({ ok: true })),
     lomGet: jest.fn(() => Promise.resolve('120')),
     lomScanPeers: jest.fn(() => Promise.resolve(JSON.stringify({ peers: [] }))),
     handleMCP: jest.fn(() => Promise.resolve()),
+    rejectIfRateLimited: jest.fn(() => false),
     fakeServer,
     getHandler: () => createdHandler,
   };
@@ -98,7 +99,7 @@ function withMocks(mocks) {
     buildPassiveUiHtml: mocks.buildPassiveUiHtml,
     emitLoadingUi: mocks.emitLoadingUi,
   }));
-  jest.doMock('./discovery', () => ({
+  jest.doMock('./registration/discovery', () => ({
     detectAgents: mocks.detectAgents,
     setupDiscovery: mocks.setupDiscovery,
     regenerateToken: mocks.regenerateToken,
@@ -107,7 +108,7 @@ function withMocks(mocks) {
     registerOne: mocks.registerOne,
     unregisterOne: mocks.unregisterOne,
   }));
-  jest.doMock('./preferences', () => ({
+  jest.doMock('./registration/preferences', () => ({
     loadPreferences: mocks.loadPreferences,
     savePreferences: mocks.savePreferences,
     defaultPreferences: mocks.defaultPreferences,
@@ -119,13 +120,13 @@ function withMocks(mocks) {
     PREFERENCES_FILE: mocks.PREFERENCES_FILE,
   }));
   jest.doMock('fs', () => mocks.fs);
-  jest.doMock('./companion', () => ({
-    getCompanionStatus: mocks.getCompanionStatus,
-    installCompanion: mocks.installCompanion,
+  jest.doMock('./extension/install', () => ({
+    getExtensionStatus: mocks.getExtensionStatus,
+    installExtension: mocks.installExtension,
   }));
   // The Python source is bundled by esbuild's text loader at runtime, the .pyc
   // by the binary loader. In tests we feed fake values — handlers pass them
-  // straight to installCompanion.
+  // straight to installExtension.
   jest.doMock('../python_scripts/__init__.py', () => 'PY_SOURCE_FAKE', { virtual: true });
   jest.doMock(
     '../python_scripts/__init__.pyc',
@@ -137,6 +138,7 @@ function withMocks(mocks) {
     lomScanPeers: mocks.lomScanPeers,
   }));
   jest.doMock('./mcp/server', () => ({ handleMCP: mocks.handleMCP }));
+  jest.doMock('./security/ratelimit', () => ({ rejectIfRateLimited: mocks.rejectIfRateLimited }));
 }
 
 /**
@@ -763,9 +765,63 @@ describe('Preferences endpoints', () => {
     await flush();
     expect(res.statusCode).toBe(500);
   });
+
+  // Gap B Phase 2 — /preferences/ratelimit toggles the /mcp bypass.
+  // Auth = même modèle que `/preferences` (Origin guard top-level, pas de
+  // Bearer requis) — le jweb doit pouvoir le toggler sans templating de
+  // token. Sera durci avec Option B lors de la migration.
+  it('POST /preferences/ratelimit { bypassMcp: true } → enables bypass for 1 h', async () => {
+    const { mocks, handler } = bootAndGetHandler();
+    const before = Date.now();
+    const { req, res } = reqres('/preferences/ratelimit', 'POST', { bypassMcp: true });
+    handler(req, res);
+    await flush();
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.chunks[0]);
+    expect(body.ok).toBe(true);
+    expect(body.bypassMcpUntil).toBeGreaterThanOrEqual(before + 60 * 60 * 1000 - 1000);
+    expect(body.bypassMcpUntil).toBeLessThanOrEqual(before + 60 * 60 * 1000 + 1000);
+    expect(mocks.uiState.mcpRateLimitBypassUntil).toBe(body.bypassMcpUntil);
+  });
+
+  it('POST /preferences/ratelimit { bypassMcp: false } → disables bypass (null)', async () => {
+    const { mocks, handler } = bootAndGetHandler();
+    mocks.uiState.mcpRateLimitBypassUntil = Date.now() + 60000;
+    const { req, res } = reqres('/preferences/ratelimit', 'POST', { bypassMcp: false });
+    handler(req, res);
+    await flush();
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.chunks[0])).toEqual({ ok: true, bypassMcpUntil: null });
+    expect(mocks.uiState.mcpRateLimitBypassUntil).toBeNull();
+  });
+
+  it('POST /preferences/ratelimit rejects missing bypassMcp field with 400', async () => {
+    const { handler } = bootAndGetHandler();
+    const { req, res } = reqres('/preferences/ratelimit', 'POST', {});
+    handler(req, res);
+    await flush();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.chunks[0]).error).toMatch(/bypassMcp/);
+  });
+
+  it('POST /preferences/ratelimit rejects non-boolean bypassMcp with 400', async () => {
+    const { handler } = bootAndGetHandler();
+    const { req, res } = reqres('/preferences/ratelimit', 'POST', { bypassMcp: 'yes' });
+    handler(req, res);
+    await flush();
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('POST /preferences/ratelimit with malformed JSON → 400 via prefsErrorReply catch', async () => {
+    const { handler } = bootAndGetHandler();
+    const { req, res } = reqres('/preferences/ratelimit', 'POST', '{not-json');
+    handler(req, res);
+    await flush();
+    expect(res.statusCode).toBe(500);
+  });
 });
 
-describe('Companion endpoints', () => {
+describe('Extension endpoints', () => {
   function bootAndGetHandler() {
     const mocks = setupMocks();
     withMocks(mocks);
@@ -778,27 +834,27 @@ describe('Companion endpoints', () => {
     for (let i = 0; i < 30; i++) await Promise.resolve();
   }
 
-  it('POST /companion/install returns 200 + status when install ok', async () => {
+  it('POST /extension/install returns 200 + status when install ok', async () => {
     const { mocks, handler } = bootAndGetHandler();
-    mocks.installCompanion.mockResolvedValue({ ok: true });
-    mocks.getCompanionStatus.mockResolvedValue({ scriptInstalled: true, pingOk: false });
-    const { req, res } = reqres('/companion/install', 'POST');
+    mocks.installExtension.mockResolvedValue({ ok: true });
+    mocks.getExtensionStatus.mockResolvedValue({ scriptInstalled: true, pingOk: false });
+    const { req, res } = reqres('/extension/install', 'POST');
     handler(req, res);
     await flush();
-    expect(mocks.installCompanion).toHaveBeenCalledWith('PY_SOURCE_FAKE', expect.any(Buffer));
+    expect(mocks.installExtension).toHaveBeenCalledWith('PY_SOURCE_FAKE', expect.any(Buffer));
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.chunks[0]);
     expect(body.ok).toBe(true);
     expect(body.status).toEqual({ scriptInstalled: true, pingOk: false });
   });
 
-  it('POST /companion/install returns 500 + error message when install fails', async () => {
+  it('POST /extension/install returns 500 + error message when install fails', async () => {
     const { mocks, handler } = bootAndGetHandler();
-    mocks.installCompanion.mockResolvedValue({
+    mocks.installExtension.mockResolvedValue({
       ok: false,
       error: 'cannot create User Library Remote Scripts: EACCES',
     });
-    const { req, res } = reqres('/companion/install', 'POST');
+    const { req, res } = reqres('/extension/install', 'POST');
     handler(req, res);
     await flush();
     expect(res.statusCode).toBe(500);
@@ -806,20 +862,20 @@ describe('Companion endpoints', () => {
     expect(body.error).toMatch(/EACCES/);
   });
 
-  it('POST /companion/install surfaces a thrown error as 500', async () => {
+  it('POST /extension/install surfaces a thrown error as 500', async () => {
     const { mocks, handler } = bootAndGetHandler();
-    mocks.installCompanion.mockImplementation(() => Promise.reject(new Error('disk full')));
-    const { req, res } = reqres('/companion/install', 'POST');
+    mocks.installExtension.mockImplementation(() => Promise.reject(new Error('disk full')));
+    const { req, res } = reqres('/extension/install', 'POST');
     handler(req, res);
     await flush();
     expect(res.statusCode).toBe(500);
     expect(JSON.parse(res.chunks[0]).error).toBe('disk full');
   });
 
-  it('POST /companion/recheck returns the current status', async () => {
+  it('POST /extension/recheck returns the current status', async () => {
     const { mocks, handler } = bootAndGetHandler();
-    mocks.getCompanionStatus.mockResolvedValue({ scriptInstalled: true, pingOk: true });
-    const { req, res } = reqres('/companion/recheck', 'POST');
+    mocks.getExtensionStatus.mockResolvedValue({ scriptInstalled: true, pingOk: true });
+    const { req, res } = reqres('/extension/recheck', 'POST');
     handler(req, res);
     await flush();
     expect(res.statusCode).toBe(200);
@@ -827,24 +883,24 @@ describe('Companion endpoints', () => {
     expect(body).toEqual({ ok: true, status: { scriptInstalled: true, pingOk: true } });
   });
 
-  it('POST /companion/recheck surfaces unexpected errors as 500', async () => {
+  it('POST /extension/recheck surfaces unexpected errors as 500', async () => {
     const { mocks, handler } = bootAndGetHandler();
-    mocks.getCompanionStatus.mockImplementation(() => Promise.reject(new Error('oops')));
-    const { req, res } = reqres('/companion/recheck', 'POST');
+    mocks.getExtensionStatus.mockImplementation(() => Promise.reject(new Error('oops')));
+    const { req, res } = reqres('/extension/recheck', 'POST');
     handler(req, res);
     await flush();
     expect(res.statusCode).toBe(500);
     expect(JSON.parse(res.chunks[0]).error).toBe('oops');
   });
 
-  it('updateCompanionStatus is called at boot (best-effort, error is logged not thrown)', async () => {
+  it('updateExtensionStatus is called at boot (best-effort, error is logged not thrown)', async () => {
     const mocks = setupMocks();
-    mocks.getCompanionStatus.mockImplementation(() => Promise.reject(new Error('boot fail')));
+    mocks.getExtensionStatus.mockImplementation(() => Promise.reject(new Error('boot fail')));
     withMocks(mocks);
     jest.isolateModules(() => require('./index'));
     mocks.fakeServer.listen.mock.calls[0][2]();
     await flush();
-    expect(mocks.log).toHaveBeenCalledWith(expect.stringContaining('Companion check failed'));
+    expect(mocks.log).toHaveBeenCalledWith(expect.stringContaining('Extension check failed'));
   });
 });
 
@@ -1088,8 +1144,8 @@ describe('CSRF guard (Gap A)', () => {
     ['/preferences', 'POST'],
     ['/preferences/agent/claudeCode', 'POST'],
     ['/preferences/reset', 'POST'],
-    ['/companion/install', 'POST'],
-    ['/companion/recheck', 'POST'],
+    ['/extension/install', 'POST'],
+    ['/extension/recheck', 'POST'],
     ['/detect', 'POST'],
     ['/unknown-route', 'GET'],
   ])('rejects %s %s with 403 when Origin is non-local', async (url, method) => {
@@ -1098,10 +1154,10 @@ describe('CSRF guard (Gap A)', () => {
     expect(res.statusCode).toBe(403);
     expect(JSON.parse(res.chunks[0])).toEqual({ error: 'forbidden_origin' });
     // Guard short-circuits BEFORE the route handler — e.g. handleMCP must
-    // never be invoked, no preference write, no companion install.
+    // never be invoked, no preference write, no extension install.
     expect(mocks.handleMCP).not.toHaveBeenCalled();
     expect(mocks.savePreferences).not.toHaveBeenCalled();
-    expect(mocks.installCompanion).not.toHaveBeenCalled();
+    expect(mocks.installExtension).not.toHaveBeenCalled();
     expect(mocks.detectAgents).toHaveBeenCalledTimes(1); // boot only, not /detect
     expect(mocks.log).toHaveBeenCalledWith(expect.stringContaining('rejected non-local origin'));
   });
@@ -1128,5 +1184,64 @@ describe('CSRF guard (Gap A)', () => {
     const { req, res } = reqres('/preferences', 'GET');
     await handler(req, res);
     expect(res.statusCode).toBe(200);
+  });
+});
+
+// Rate-limit guard (Gap B Phase 1) — wired AFTER the Origin guard, BEFORE
+// the route dispatch. When it returns true (bucket empty), the response is
+// already written and the handler must return without touching routes.
+describe('rate-limit guard (Gap B)', () => {
+  function bootAndGetHandler(overrides = {}) {
+    const mocks = setupMocks();
+    Object.assign(mocks, overrides);
+    withMocks(mocks);
+    jest.isolateModules(() => require('./index'));
+    mocks.fakeServer.listen.mock.calls[0][2]();
+    return { mocks, handler: mocks.getHandler() };
+  }
+
+  it('calls rejectIfRateLimited for every request with the bypass timestamp from uiState', () => {
+    const { mocks, handler } = bootAndGetHandler();
+    mocks.uiState.mcpRateLimitBypassUntil = 12345;
+    const { req, res } = reqres('/preferences', 'GET');
+    handler(req, res);
+    expect(mocks.rejectIfRateLimited).toHaveBeenCalledWith(req, res, {
+      bypassMcpUntil: 12345,
+    });
+  });
+
+  it('passes bypassMcpUntil as undefined when not set on uiState', () => {
+    const { mocks, handler } = bootAndGetHandler();
+    // mcpRateLimitBypassUntil not set in the default uiState mock.
+    const { req, res } = reqres('/preferences', 'GET');
+    handler(req, res);
+    expect(mocks.rejectIfRateLimited).toHaveBeenCalledWith(req, res, {
+      bypassMcpUntil: undefined,
+    });
+  });
+
+  it('short-circuits routing when rejectIfRateLimited returns true', () => {
+    const { mocks, handler } = bootAndGetHandler();
+    // Simulate bucket empty : the helper writes 429 itself and returns true.
+    mocks.rejectIfRateLimited.mockImplementation((req, res) => {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' });
+      res.end(JSON.stringify({ error: 'rate_limited', category: 'mcp', retryAfter: 1 }));
+      return true;
+    });
+    const { req, res } = reqres('/mcp', 'POST');
+    handler(req, res);
+    expect(res.statusCode).toBe(429);
+    expect(res.headers['Retry-After']).toBe('1');
+    // Route was NOT reached — handleMCP never called.
+    expect(mocks.handleMCP).not.toHaveBeenCalled();
+  });
+
+  it('runs AFTER the Origin guard (non-local origins are rejected with 403 first)', () => {
+    const { mocks, handler } = bootAndGetHandler();
+    const { req, res } = reqres('/mcp', 'POST', undefined, { origin: 'http://evil.com' });
+    handler(req, res);
+    expect(res.statusCode).toBe(403); // forbidden_origin, not 429
+    // Rate-limit guard isn't called for evil origins — they're 403'd first.
+    expect(mocks.rejectIfRateLimited).not.toHaveBeenCalled();
   });
 });

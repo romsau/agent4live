@@ -6,13 +6,13 @@
 
 jest.mock('fs');
 jest.mock('child_process');
-jest.mock('./config', () => ({
+jest.mock('../config', () => ({
   SERVER_NAME: 'agent4live-ableton',
   SUBPROCESS_TIMEOUT_MS: 5000,
   AGENT_REGISTRATION_TIMEOUT_MS: 10000,
   TOKEN_BYTES: 16,
 }));
-jest.mock('./ui/state', () => ({
+jest.mock('../ui/state', () => ({
   uiState: {
     agents: {
       claudeCode: { detected: false, registered: false },
@@ -28,7 +28,7 @@ const fs = require('fs');
 const cp = require('child_process');
 const path = require('path');
 const os = require('os');
-const { uiState, log } = require('./ui/state');
+const { uiState, log } = require('../ui/state');
 
 const HOME = os.homedir();
 const ENDPOINT_FILE = path.join(HOME, '.agent4live-ableton-mcp', 'endpoint.json');

@@ -14,16 +14,16 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { auditLog, hashToken } = require('./audit');
+const { auditLog, hashToken } = require('../security/audit');
 const { execFileSync, execFile } = require('child_process');
 const {
   SERVER_NAME,
   SUBPROCESS_TIMEOUT_MS,
   AGENT_REGISTRATION_TIMEOUT_MS,
   TOKEN_BYTES,
-} = require('./config');
-const { uiState, log } = require('./ui/state');
-const { SKILL_FILE_BODY } = require('./skill');
+} = require('../config');
+const { uiState, log } = require('../ui/state');
+const { SKILL_FILE_BODY } = require('../skill');
 
 const OPENCODE_CONFIG = path.join(os.homedir(), '.config', 'opencode', 'opencode.json');
 const ENDPOINT_DIR = path.join(os.homedir(), '.agent4live-ableton-mcp');

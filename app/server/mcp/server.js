@@ -13,7 +13,7 @@ const {
 
 const { PORT, SERVER_NAME, SERVER_VERSION } = require('../config');
 const { uiState, log } = require('../ui/state');
-const { rejectIfNonLocalOrigin } = require('../auth');
+const { rejectIfNonLocalOrigin } = require('../security/auth');
 const tools = require('../tools');
 const sse = require('./sse');
 

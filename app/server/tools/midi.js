@@ -2,47 +2,47 @@
 
 const { z } = require('zod');
 const { defineTool } = require('./define');
-const { sendMidi, isAlive } = require('../python');
+const { sendMidi, isAlive } = require('../extension/bridge');
 
 /**
- * Standard error when the Python companion isn't reachable. MIDI tools
- * (like the Browser API tools) require the companion installed AND assigned
+ * Standard error when the Python extension isn't reachable. MIDI tools
+ * (like the Browser API tools) require the extension installed AND assigned
  * in Live's Preferences → Tempo & MIDI → Control Surface dropdown.
  *
  * @returns {Error}
  */
-function companionUnreachableError() {
+function extensionUnreachableError() {
   return new Error(
-    'MIDI raw tools require the agent4live Python companion. ' +
-      'Install via `node tools/companion/install.js`, restart Live, and assign ' +
+    'MIDI raw tools require the agent4live Python extension. ' +
+      'Install via `node tools/extension/install.js`, restart Live, and assign ' +
       '"agent4live" in Preferences → Tempo & MIDI → Control Surface (with Input ' +
       'and/or Output ports as needed).',
   );
 }
 
 /**
- * @param {object} response - Whatever the Python companion returned.
+ * @param {object} response - Whatever the Python extension returned.
  * @returns {object} The response if ok ; throws otherwise.
  */
 function unwrap(response) {
   if (response && response.ok) return response;
-  throw new Error((response && response.error) || 'companion returned an error');
+  throw new Error((response && response.error) || 'extension returned an error');
 }
 
 /**
- * Throws a friendly error when the companion can't be reached, otherwise no-op.
+ * Throws a friendly error when the extension can't be reached, otherwise no-op.
  *
  * @returns {Promise<void>}
  */
-async function ensureCompanion() {
+async function ensureExtension() {
   const alive = await isAlive();
-  if (!alive) throw companionUnreachableError();
+  if (!alive) throw extensionUnreachableError();
 }
 
 /**
  * Register the MIDI raw tools (send only — receive is deferred pending
  * Live 12 InputControlElement dependency-injection rework). The send tool
- * routes through the Python companion : it writes to the Output port
+ * routes through the Python extension : it writes to the Output port
  * assigned to the agent4live Control Surface slot in Live → Preferences →
  * Tempo & MIDI. If the slot's Output is "None", the message is silently
  * dropped by Live — no error returned.
@@ -62,7 +62,7 @@ function register(server) {
       'note + 0 = explicit note-off (or status=0x90 + note + 0 = running-' +
       'status note-off). If the slot has Output = "None", the message is ' +
       'silently dropped by Live (no error returned). Requires the agent4live ' +
-      'Python companion.',
+      'Python extension.',
     schema: {
       status: z
         .number()
@@ -74,7 +74,7 @@ function register(server) {
       data2: z.number().int().min(0).max(127).describe('Second data byte (velocity or CC value)'),
     },
     handler: async ({ status, data1, data2 }) => {
-      await ensureCompanion();
+      await ensureExtension();
       unwrap(await sendMidi(status, data1, data2));
       return `MIDI sent: status=0x${status.toString(16).padStart(2, '0')} data1=${data1} data2=${data2}`;
     },

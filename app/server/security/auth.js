@@ -6,7 +6,7 @@
 // rotation, etc. — anything cross-cutting that isn't tied to the MCP
 // transport itself.
 
-const { log } = require('./ui/state');
+const { log } = require('../ui/state');
 
 /**
  * CSRF defense — only accept requests whose Origin header points to localhost

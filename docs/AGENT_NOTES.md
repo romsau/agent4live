@@ -47,7 +47,7 @@ Le pre-commit hook fait passer `@commitlint/config-conventional` sur le message.
 
 ## Tester comme un nouveau user — reset complet
 
-Pour valider le parcours d'onboarding "premier drop sur la piste Master, jamais utilisé agent4live avant", il faut un état système vraiment vierge — pas juste effacer `preferences.json`. Sinon le device saute Modal A (companion déjà installé), saute la migration silencieuse (entrée `.claude.json` toujours là), et l'expérience testée n'est pas celle d'un nouveau user.
+Pour valider le parcours d'onboarding "premier drop sur la piste Master, jamais utilisé agent4live avant", il faut un état système vraiment vierge — pas juste effacer `preferences.json`. Sinon le device saute Modal A (extension déjà installé), saute la migration silencieuse (entrée `.claude.json` toujours là), et l'expérience testée n'est pas celle d'un nouveau user.
 
 **Procédure canonique** (à exécuter Live device fermé / serveur :19845 down) :
 
@@ -65,7 +65,7 @@ Ce que chaque ligne fait et **pourquoi** elle est nécessaire :
 | Cible                                                    | Effet de la conserver                                                      | Effet de l'effacer                                        |
 | -------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------- |
 | `claude mcp remove ... --scope user`                     | Migration silencieuse Claude détecte l'entrée localhost et auto-consent    | Modal C demande explicitement le consentement             |
-| `~/Music/Ableton/User Library/Remote Scripts/agent4live` | Companion déjà installé → Modal A est skipped                              | Modal A "Install companion" s'affiche                     |
+| `~/Music/Ableton/User Library/Remote Scripts/agent4live` | Extension déjà installé → Modal A est skipped                              | Modal A "Install extension" s'affiche                     |
 | `~/.claude/skills/agent4live/SKILL.md`                   | Skill agent déjà déployé                                                   | Skill recréé au boot, vérifie le déploiement              |
 | `~/.agent4live-ableton-mcp/preferences.json`             | Re-applique l'état persisté → pas de modal                                 | 1er boot détecté, cascade modal complète                  |
 | `~/.agent4live-ableton-mcp/endpoint.json`                | Réutilise l'ancien token (peut auth-fail si entrée CLI a un nouveau token) | Génère un nouveau token cohérent avec ce qu'on enregistre |

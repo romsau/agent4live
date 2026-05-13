@@ -2,45 +2,45 @@
 
 const { z } = require('zod');
 const { defineTool } = require('./define');
-const { browserList, browserLoadItem, browserSearch, isAlive } = require('../python');
+const { browserList, browserLoadItem, browserSearch, isAlive } = require('../extension/bridge');
 
 /**
- * Format a uniform error message when the companion isn't reachable. Browser
+ * Format a uniform error message when the extension isn't reachable. Browser
  * tools require the Python Remote Script to be installed AND assigned in
  * Live's Preferences → Control Surface dropdown.
  *
  * @returns {Error}
  */
-function companionUnreachableError() {
+function extensionUnreachableError() {
   return new Error(
-    'Browser API requires the agent4live Python companion. ' +
-      'Install via `node tools/companion/install.js`, restart Live, and assign ' +
+    'Browser API requires the agent4live Python extension. ' +
+      'Install via `node tools/extension/install.js`, restart Live, and assign ' +
       '"agent4live" in Preferences → Tempo & MIDI → Control Surface.',
   );
 }
 
 /**
- * Throws a friendly error when the companion can't be reached, otherwise no-op.
+ * Throws a friendly error when the extension can't be reached, otherwise no-op.
  *
  * @returns {Promise<void>}
  */
-async function ensureCompanion() {
+async function ensureExtension() {
   const alive = await isAlive();
-  if (!alive) throw companionUnreachableError();
+  if (!alive) throw extensionUnreachableError();
 }
 
 /**
- * @param {object} response - Whatever the Python companion returned.
+ * @param {object} response - Whatever the Python extension returned.
  * @returns {object} The response if ok ; throws otherwise.
  */
 function unwrap(response) {
   if (response && response.ok) return response;
-  throw new Error((response && response.error) || 'companion returned an error');
+  throw new Error((response && response.error) || 'extension returned an error');
 }
 
 /**
  * Register the Browser API tools on the MCP server. These are the only tools
- * that go through the Python companion (the other 214 use Max [js] LOM).
+ * that go through the Python extension (the other 214 use Max [js] LOM).
  *
  * @param {object} server
  */
@@ -53,7 +53,7 @@ function register(server) {
       'samples, clips, user_library, current_project, packs). Slash-separated ' +
       "to descend (e.g. 'instruments/Drum Rack'). Returns JSON " +
       '[{name, uri, is_folder, is_loadable}, ...]. Requires the agent4live ' +
-      'Python companion (Live → Preferences → Control Surface = agent4live).',
+      'Python extension (Live → Preferences → Control Surface = agent4live).',
     schema: {
       path: z
         .string()
@@ -61,7 +61,7 @@ function register(server) {
         .describe('Slash-separated browser path. Empty = top-level roots.'),
     },
     handler: async ({ path }) => {
-      await ensureCompanion();
+      await ensureExtension();
       const r = unwrap(await browserList(path));
       return JSON.stringify(r.items);
     },
@@ -79,7 +79,7 @@ function register(server) {
       'selected track or device. For programmatic hot-swap of a specific ' +
       'device (replace its preset without manual UI focus), the sequence is: ' +
       'select_device(track, device) → toggle_browse() → browser_load_item(path) ' +
-      '→ toggle_browse(). Requires the agent4live Python companion.',
+      '→ toggle_browse(). Requires the agent4live Python extension.',
     schema: {
       path: z
         .string()
@@ -87,7 +87,7 @@ function register(server) {
         .describe('Slash-separated path starting with a root attr name (drums, instruments, ...).'),
     },
     handler: async ({ path }) => {
-      await ensureCompanion();
+      await ensureExtension();
       const r = unwrap(await browserLoadItem(path));
       return r.loaded;
     },
@@ -102,14 +102,14 @@ function register(server) {
       'midi_effects | plugins | samples | clips | user_library | ' +
       'current_project | packs). Returns JSON {results: [{name, path, ' +
       'is_loadable}], truncated}. Pass the returned `path` to ' +
-      '`browser_load_item` to load the item. Requires the agent4live Python companion.',
+      '`browser_load_item` to load the item. Requires the agent4live Python extension.',
     schema: {
       query: z.string().min(1).describe('Substring (case-insensitive)'),
       root: z.string().default('').describe('Optional root to restrict the search'),
       limit: z.number().int().min(1).max(200).default(50),
     },
     handler: async ({ query, root, limit }) => {
-      await ensureCompanion();
+      await ensureExtension();
       const r = unwrap(await browserSearch(query, root, limit));
       return JSON.stringify({ results: r.results, truncated: r.truncated });
     },

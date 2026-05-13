@@ -6,7 +6,7 @@
 
 jest.mock('fs');
 jest.mock('./concat-lom', () => ({ concat: jest.fn() }));
-jest.mock('./compile-companion-pyc', () => ({ compile: jest.fn() }));
+jest.mock('./compile-extension-pyc', () => ({ compile: jest.fn() }));
 
 const fs = require('fs');
 const path = require('path');
@@ -22,7 +22,7 @@ jest.doMock(esbuildPath, () => esbuildMock, { virtual: true });
 
 const { main } = require('./build');
 const { concat } = require('./concat-lom');
-const { compile: compilePyc } = require('./compile-companion-pyc');
+const { compile: compilePyc } = require('./compile-extension-pyc');
 
 beforeEach(() => {
   jest.clearAllMocks();

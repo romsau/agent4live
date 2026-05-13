@@ -33,7 +33,7 @@ const {
   setupConsentedClients,
   registerOne,
   unregisterOne,
-} = require('./discovery');
+} = require('./registration/discovery');
 const {
   loadPreferences,
   savePreferences,
@@ -44,19 +44,20 @@ const {
   applyAutoRegisterEnv,
   AGENTS,
   PREFERENCES_FILE,
-} = require('./preferences');
+} = require('./registration/preferences');
 const fs = require('fs');
-const { getCompanionStatus, installCompanion } = require('./companion');
-// Python companion files — bundled by esbuild so the device can deploy them
+const { getExtensionStatus, installExtension } = require('./extension/install');
+// Python extension files — bundled by esbuild so the device can deploy them
 // to the User Library at install time without ever asking the user for
 // python3.11. The .py is text (debug + diffability), the .pyc is the binary
-// Live 12 actually loads (compiled by tools/build/compile-companion-pyc.js).
-const COMPANION_PY_SOURCE = require('../python_scripts/__init__.py');
-const COMPANION_PYC_BYTES = require('../python_scripts/__init__.pyc');
+// Live 12 actually loads (compiled by tools/build/compile-extension-pyc.js).
+const EXTENSION_PY_SOURCE = require('../python_scripts/__init__.py');
+const EXTENSION_PYC_BYTES = require('../python_scripts/__init__.pyc');
 const { lomGet, lomScanPeers } = require('./lom');
 const { handleMCP } = require('./mcp/server');
-const { rejectIfNonLocalOrigin } = require('./auth');
-const { auditLog, hashToken } = require('./audit');
+const { rejectIfNonLocalOrigin } = require('./security/auth');
+const { auditLog, hashToken } = require('./security/audit');
+const { rejectIfRateLimited } = require('./security/ratelimit');
 
 // First thing the node script does: push a neutral Loading placeholder to the
 // jweb. This overrides any stale URL the jweb might still hold (e.g. a passive
@@ -73,10 +74,17 @@ const UI_HTML = buildUiHtml();
 const httpServer = http.createServer((req, res) => {
   log(`${req.method} ${req.url}`);
   // Gap A — CSRF defense-in-depth : reject non-local Origin BEFORE routing so
-  // every endpoint (including /preferences*, /companion/*, /detect, /ui*) is
+  // every endpoint (including /preferences*, /extension/*, /detect, /ui*) is
   // uniformly protected. /mcp's checkAuth still runs its own Origin check ;
   // the double-check is harmless and keeps that layer self-contained.
   if (rejectIfNonLocalOrigin(req, res)) return;
+  // Gap B — token-bucket rate limit per category (mcp / ui / config). Runs
+  // AFTER the Origin guard so we don't waste tokens on cross-origin floods
+  // (those are already 403'd) but BEFORE routing so an agent fou en boucle
+  // gets a 429 without ever reaching the LOM queue. The bypass timestamp
+  // (uiState.mcpRateLimitBypassUntil) is wired in Phase 2 ; for now it
+  // stays unset and the guard always evaluates the buckets normally.
+  if (rejectIfRateLimited(req, res, { bypassMcpUntil: uiState.mcpRateLimitBypassUntil })) return;
   if (req.url === '/mcp') {
     handleMCP(req, res).catch((err) => {
       log(`Request error: ${err.message}`);
@@ -111,7 +119,7 @@ const httpServer = http.createServer((req, res) => {
         ...rest,
         agents: enrichedAgents,
         firstBoot: isFirstBoot(prefs),
-        // companionStatus already in `rest` (from uiState) — explicit here
+        // extensionStatus already in `rest` (from uiState) — explicit here
         // for documentation purposes ; the spread covers it.
       }),
     );
@@ -147,12 +155,16 @@ const httpServer = http.createServer((req, res) => {
     handleRotateToken(req, res).catch((err) => prefsErrorReply(res, 500, err));
     return;
   }
-  if (req.url === '/companion/install' && req.method === 'POST') {
-    handleCompanionInstall(res).catch((err) => companionErrorReply(res, 500, err));
+  if (req.url === '/preferences/ratelimit' && req.method === 'POST') {
+    handleRatelimitToggle(req, res).catch((err) => prefsErrorReply(res, 500, err));
     return;
   }
-  if (req.url === '/companion/recheck' && req.method === 'POST') {
-    handleCompanionRecheck(res).catch((err) => companionErrorReply(res, 500, err));
+  if (req.url === '/extension/install' && req.method === 'POST') {
+    handleExtensionInstall(res).catch((err) => extensionErrorReply(res, 500, err));
+    return;
+  }
+  if (req.url === '/extension/recheck' && req.method === 'POST') {
+    handleExtensionRecheck(res).catch((err) => extensionErrorReply(res, 500, err));
     return;
   }
   if (req.url === '/detect' && req.method === 'POST') {
@@ -310,6 +322,51 @@ async function handleRotateToken(req, res) {
   );
 }
 
+// Gap B Phase 2 — how long a single bypass lasts. 1h = assez long pour
+// un scan géant légitime ou une session intensive d'introspection, assez
+// court pour qu'on n'oublie pas de remettre la garde. Auto-expire passive
+// (math `Date.now() < bypassUntil` à chaque take()) — pas de setTimeout
+// nécessaire.
+const BYPASS_DURATION_MS = 60 * 60 * 1000;
+
+/**
+ * POST /preferences/ratelimit (Gap B) — toggle the /mcp rate-limit bypass.
+ * Same auth model que `/preferences` (Origin allow-list via la garde Gap A
+ * du top-level, pas de Bearer requis) — le jweb doit pouvoir le toggler
+ * depuis sa propre UI sans templating du token. La sécurité réelle reste
+ * portée par le Bearer sur `/mcp` lui-même : désactiver le rate-limit
+ * permet juste de flooder à vitesse arbitraire un endpoint que l'attaquant
+ * doit déjà pouvoir atteindre (Bearer requis). Trade-off cohérent avec le
+ * modèle d'auth actuel — sera durci avec Option B au moment de la migration.
+ *
+ * Body : `{ bypassMcp: true }` → bypass actif pour 15 min ;
+ *        `{ bypassMcp: false }` → annule un bypass actif (kill switch).
+ *
+ * Réponse : `{ ok: true, bypassMcpUntil: <timestamp or null> }`. Le
+ * timestamp permet à l'UI de calculer le countdown sans repoller.
+ *
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse} res
+ */
+async function handleRatelimitToggle(req, res) {
+  const body = await readJsonBody(req);
+  if (body.bypassMcp === true) {
+    uiState.mcpRateLimitBypassUntil = Date.now() + BYPASS_DURATION_MS;
+    auditLog('ratelimit-bypass-enable', {
+      until: new Date(uiState.mcpRateLimitBypassUntil).toISOString(),
+    });
+  } else if (body.bypassMcp === false) {
+    uiState.mcpRateLimitBypassUntil = null;
+    auditLog('ratelimit-bypass-disable');
+  } else {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'missing or invalid `bypassMcp` field (expected boolean)' }));
+    return;
+  }
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ ok: true, bypassMcpUntil: uiState.mcpRateLimitBypassUntil }));
+}
+
 /**
  * POST /preferences/reset — unregister every agent + delete preferences.json.
  * Returns the device to "first boot" state ; the modal will appear again.
@@ -334,38 +391,38 @@ async function handlePreferencesReset(res) {
 }
 
 /**
- * Refresh `uiState.companionStatus` from the live filesystem + ping. Called
+ * Refresh `uiState.extensionStatus` from the live filesystem + ping. Called
  * at boot and after every install/recheck so the polled /ui/state stays
  * fresh without making a TCP ping every 500ms.
  *
  * @returns {Promise<{ scriptInstalled: boolean, pingOk: boolean }>}
  */
-async function updateCompanionStatus() {
-  const status = await getCompanionStatus();
-  uiState.companionStatus = status;
+async function updateExtensionStatus() {
+  const status = await getExtensionStatus();
+  uiState.extensionStatus = status;
   return status;
 }
 
 /**
- * POST /companion/install — write the bundled .py to User Library + compile.
+ * POST /extension/install — write the bundled .py to User Library + compile.
  *
  * @param {http.ServerResponse} res
  */
-async function handleCompanionInstall(res) {
-  const result = await installCompanion(COMPANION_PY_SOURCE, COMPANION_PYC_BYTES);
+async function handleExtensionInstall(res) {
+  const result = await installExtension(EXTENSION_PY_SOURCE, EXTENSION_PYC_BYTES);
   // Refresh status either way so the UI reflects the new state.
-  const status = await updateCompanionStatus();
+  const status = await updateExtensionStatus();
   res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ ...result, status }));
 }
 
 /**
- * POST /companion/recheck — re-probe script + ping, update state, return it.
+ * POST /extension/recheck — re-probe script + ping, update state, return it.
  *
  * @param {http.ServerResponse} res
  */
-async function handleCompanionRecheck(res) {
-  const status = await updateCompanionStatus();
+async function handleExtensionRecheck(res) {
+  const status = await updateExtensionStatus();
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ ok: true, status }));
 }
@@ -375,8 +432,8 @@ async function handleCompanionRecheck(res) {
  * @param {number} status
  * @param {Error} err
  */
-function companionErrorReply(res, status, err) {
-  log(`/companion error: ${err.message}`);
+function extensionErrorReply(res, status, err) {
+  log(`/extension error: ${err.message}`);
   /* istanbul ignore else -- defensive: handlers writeHead only on the success
      path, so headers should never be sent by the time we land here. */
   if (!res.headersSent) {
@@ -504,8 +561,8 @@ function activeBoot() {
   setTimeout(() => {
     lomGet('live_set', 'tempo').catch((err) => log(`Initial LOM ping failed: ${err.message}`));
   }, ACTIVE_LOM_PING_DELAY_MS);
-  // Companion check is async + best-effort — drives modals A/B in the UI.
-  updateCompanionStatus().catch((err) => log(`Companion check failed: ${err.message}`));
+  // Extension check is async + best-effort — drives modals A/B in the UI.
+  updateExtensionStatus().catch((err) => log(`Extension check failed: ${err.message}`));
 }
 
 /** Switch from `passive` to `active` mode (we just acquired the port). */

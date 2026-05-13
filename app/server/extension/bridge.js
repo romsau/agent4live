@@ -1,6 +1,6 @@
 'use strict';
 
-// JSON-over-TCP client to the agent4live Python companion. The companion
+// JSON-over-TCP client to the agent4live Python extension. The extension
 // runs as a Live Remote Script (~/Library/Preferences/Ableton/Live X.Y/
 // User Remote Scripts/agent4live/__init__.py) and listens on 127.0.0.1:54321.
 //
@@ -38,7 +38,7 @@ function pythonCall(message, timeoutMs) {
       fn();
     };
     const timer = setTimeout(
-      () => settle(() => reject(new Error(`python companion timeout after ${budget}ms`))),
+      () => settle(() => reject(new Error(`python extension timeout after ${budget}ms`))),
       budget,
     );
 
@@ -53,7 +53,7 @@ function pythonCall(message, timeoutMs) {
       try {
         parsed = JSON.parse(line);
       } catch (err) {
-        settle(() => reject(new Error(`python companion bad JSON: ${err.message}`)));
+        settle(() => reject(new Error(`python extension bad JSON: ${err.message}`)));
         return;
       }
       settle(() => resolve(parsed));
@@ -64,7 +64,7 @@ function pythonCall(message, timeoutMs) {
     });
     client.on('close', () => {
       clearTimeout(timer);
-      settle(() => reject(new Error('python companion closed connection without response')));
+      settle(() => reject(new Error('python extension closed connection without response')));
     });
 
     client.connect(PORT, HOST, () => {
@@ -74,7 +74,7 @@ function pythonCall(message, timeoutMs) {
 }
 
 /**
- * Probe the companion. Resolves with `{ ok, version }` on success, throws on
+ * Probe the extension. Resolves with `{ ok, version }` on success, throws on
  * connection error or timeout. Cheap (~ms over loopback) — call freely.
  *
  * @returns {Promise<{ ok: boolean, version: number }>}
@@ -84,7 +84,7 @@ async function ping() {
 }
 
 /**
- * Lightweight `is the companion reachable?` for the UI banner. Never throws.
+ * Lightweight `is the extension reachable?` for the UI banner. Never throws.
  *
  * @returns {Promise<boolean>}
  */
@@ -137,7 +137,7 @@ function browserSearch(query, root, limit) {
 }
 
 /**
- * Send a 3-byte MIDI message via the companion's Control Surface output port.
+ * Send a 3-byte MIDI message via the extension's Control Surface output port.
  * Resolves with `{ ok: true }` on success ; the message is silently dropped
  * by Live if the slot has Output = "None" — there's no error in that case.
  *

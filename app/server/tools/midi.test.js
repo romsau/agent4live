@@ -1,16 +1,16 @@
 'use strict';
 
-// Tests for the MIDI raw tool family. The Python companion is mocked at the
+// Tests for the MIDI raw tool family. The Python extension is mocked at the
 // helper level so we never touch a real socket.
 
-jest.mock('../python', () => ({
+jest.mock('../extension/bridge', () => ({
   isAlive: jest.fn(),
   sendMidi: jest.fn(),
 }));
 jest.mock('../ui/state', () => ({ uiLog: jest.fn() }));
 
 const { collectTools, callHandlerText } = require('../../../tools/test/tool-test-utils');
-const python = require('../python');
+const python = require('../extension/bridge');
 const family = require('./midi');
 
 const tools = collectTools(family.register);
@@ -28,12 +28,12 @@ it('registers the 1 midi tool (send only — receive deferred)', () => {
   expect(tools.map((t) => t.name)).toEqual(['send_midi']);
 });
 
-describe('companion gate', () => {
-  it('send_midi throws a friendly error when the companion is unreachable', async () => {
+describe('extension gate', () => {
+  it('send_midi throws a friendly error when the extension is unreachable', async () => {
     python.isAlive.mockResolvedValue(false);
     await expect(
       callHandlerText(byName('send_midi').handler, { status: 0x90, data1: 60, data2: 100 }),
-    ).rejects.toThrow(/require the agent4live Python companion/);
+    ).rejects.toThrow(/require the agent4live Python extension/);
   });
 });
 
@@ -50,7 +50,7 @@ describe('send_midi', () => {
     expect(text).toBe('MIDI sent: status=0x90 data1=60 data2=100');
   });
 
-  it('surfaces the companion error when ok=false', async () => {
+  it('surfaces the extension error when ok=false', async () => {
     python.isAlive.mockResolvedValue(true);
     python.sendMidi.mockResolvedValue({ ok: false, error: 'send_midi failed: boom' });
     await expect(
@@ -63,6 +63,6 @@ describe('send_midi', () => {
     python.sendMidi.mockResolvedValue({ ok: false });
     await expect(
       callHandlerText(byName('send_midi').handler, { status: 0x90, data1: 0, data2: 0 }),
-    ).rejects.toThrow(/companion returned an error/);
+    ).rejects.toThrow(/extension returned an error/);
   });
 });

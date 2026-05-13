@@ -173,17 +173,17 @@ function makeHandler(state, broadcast) {
       return;
     }
 
-    // Mock the companion endpoints so Modal A "Install" and Modal B
+    // Mock the extension endpoints so Modal A "Install" and Modal B
     // "Recheck" buttons produce a deterministic, JSON-shaped response in the
     // dev preview — otherwise the fetch falls through to the 404 handler and
     // the client can't tell apart a real failure from an unmocked route.
-    if (route === '/companion/recheck' && req.method === 'POST') {
+    if (route === '/extension/recheck' && req.method === 'POST') {
       const fixture = state.fixtures[state.activeFixture] || state.fixtures.default;
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, status: fixture.companionStatus }));
+      res.end(JSON.stringify({ ok: true, status: fixture.extensionStatus }));
       return;
     }
-    if (route === '/companion/install' && req.method === 'POST') {
+    if (route === '/extension/install' && req.method === 'POST') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, status: { scriptInstalled: true, pingOk: false } }));
       return;

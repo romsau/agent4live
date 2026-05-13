@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('path');
-const pythonPath = path.resolve(__dirname, '..', '..', 'app', 'server', 'python.js');
+const pythonPath = path.resolve(__dirname, '..', '..', 'app', 'server', 'extension', 'bridge.js');
 
 jest.mock(pythonPath, () => ({ ping: jest.fn() }));
 

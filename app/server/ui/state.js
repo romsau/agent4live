@@ -74,12 +74,17 @@ const uiState = {
     codex: { detected: false, registered: false },
     gemini: { detected: false, registered: false },
   },
-  // null = the device just booted and updateCompanionStatus() hasn't returned
+  // null = the device just booted and updateExtensionStatus() hasn't returned
   // yet. The UI uses null as a "loading" signal so it doesn't flash Modal A
   // "One-time setup" before knowing the real install state. Set to a real
-  // {scriptInstalled, pingOk} object by index.js after each companion check
-  // (boot, /companion/install, /companion/recheck).
-  companionStatus: null,
+  // {scriptInstalled, pingOk} object by index.js after each extension check
+  // (boot, /extension/install, /extension/recheck).
+  extensionStatus: null,
+  // Gap B bypass : timestamp (ms epoch) until which /mcp rate-limiting is
+  // suspended. null = limits actives (par défaut). Set by POST
+  // /preferences/ratelimit. Exposed via /ui/state so the jweb's LIMITS card
+  // can render the countdown.
+  mcpRateLimitBypassUntil: null,
   // package.json version, displayed as a discreet footer in the UI.
   version: VERSION,
 };

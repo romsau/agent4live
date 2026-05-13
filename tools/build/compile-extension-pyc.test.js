@@ -1,6 +1,6 @@
 'use strict';
 
-// compile-companion-pyc.js shells out to python3.11 at build time. We mock fs
+// compile-extension-pyc.js shells out to python3.11 at build time. We mock fs
 // and child_process so the test never actually invokes Python.
 
 jest.mock('fs');
@@ -9,7 +9,7 @@ jest.mock('child_process');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 
-const { compile, findPython311, PY_SRC, PYC_OUT } = require('./compile-companion-pyc');
+const { compile, findPython311, PY_SRC, PYC_OUT } = require('./compile-extension-pyc');
 
 beforeEach(() => {
   jest.clearAllMocks();

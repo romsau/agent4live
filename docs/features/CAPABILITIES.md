@@ -13,7 +13,7 @@
 | `racks`       | Audio/Instrument/Drum racks, chains, drum pads, macros, variations                                   |
 | `instruments` | Simpler / Looper / Sample mode params + slicing                                                      |
 | `application` | Control surfaces, view navigation (focus/show/hide/scroll/zoom), Hot-Swap toggle, dialog automation  |
-| `browser`     | Load presets/instruments/effects/drum kits/samples programmatically (via Python companion)           |
+| `browser`     | Load presets/instruments/effects/drum kits/samples programmatically (via Python extension)           |
 | `tuning`      | Tuning systems (Live 12+) — read active microtonal grid, reference pitch, note-relative cents        |
 | `meta`        | `get_usage_guide` — bundled Markdown skill that primes the agent with conventions, pitfalls, recipes |
 | `raw`         | Direct LOM `get` / `set` / `call` for anything not covered by a semantic tool                        |

@@ -2,7 +2,7 @@
 
 // We mock `net` so the tests never open a real socket. Each test stages a
 // fake server response (a Node EventEmitter that emits 'data'/'close') and
-// asserts what python.js writes back.
+// asserts what bridge.js writes back.
 
 jest.mock('net');
 
@@ -25,7 +25,7 @@ function makeFakeSocket() {
 }
 
 // Note: no jest.resetModules() — that would re-require `net` and dissociate
-// our `net.Socket.mockImplementation()` from the instance python.js sees.
+// our `net.Socket.mockImplementation()` from the instance bridge.js sees.
 beforeEach(() => {
   jest.clearAllMocks();
 });
@@ -34,7 +34,7 @@ describe('pythonCall', () => {
   it('writes a JSON line + newline and resolves with the parsed response', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { pythonCall } = require('./python');
+    const { pythonCall } = require('./bridge');
     const promise = pythonCall({ method: 'ping' });
     // Wait for connect() callback so write is queued.
     await new Promise((r) => setImmediate(r));
@@ -47,7 +47,7 @@ describe('pythonCall', () => {
   it('handles responses chunked over multiple data events', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { pythonCall } = require('./python');
+    const { pythonCall } = require('./bridge');
     const promise = pythonCall({ method: 'x' });
     await new Promise((r) => setImmediate(r));
     socket.emit('data', '{"ok":');
@@ -59,7 +59,7 @@ describe('pythonCall', () => {
   it('rejects on bad JSON', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { pythonCall } = require('./python');
+    const { pythonCall } = require('./bridge');
     const promise = pythonCall({});
     await new Promise((r) => setImmediate(r));
     socket.emit('data', '{not-json\n');
@@ -69,7 +69,7 @@ describe('pythonCall', () => {
   it('rejects when the socket emits an error', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { pythonCall } = require('./python');
+    const { pythonCall } = require('./bridge');
     const promise = pythonCall({});
     await new Promise((r) => setImmediate(r));
     socket.emit('error', new Error('ECONNREFUSED'));
@@ -79,7 +79,7 @@ describe('pythonCall', () => {
   it('ignores a late close event after a successful data settle (idempotent settle)', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { pythonCall } = require('./python');
+    const { pythonCall } = require('./bridge');
     const promise = pythonCall({});
     await new Promise((r) => setImmediate(r));
     socket.emit('data', '{"ok":true}\n');
@@ -92,7 +92,7 @@ describe('pythonCall', () => {
   it('rejects when the socket closes before a full line is received', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { pythonCall } = require('./python');
+    const { pythonCall } = require('./bridge');
     const promise = pythonCall({});
     await new Promise((r) => setImmediate(r));
     socket.emit('close');
@@ -104,7 +104,7 @@ describe('pythonCall', () => {
     try {
       const socket = makeFakeSocket();
       net.Socket.mockImplementation(() => socket);
-      const { pythonCall } = require('./python');
+      const { pythonCall } = require('./bridge');
       const promise = pythonCall({}, 100);
       await Promise.resolve();
       jest.advanceTimersByTime(150);
@@ -120,7 +120,7 @@ describe('pythonCall', () => {
     try {
       const socket = makeFakeSocket();
       net.Socket.mockImplementation(() => socket);
-      const { pythonCall } = require('./python');
+      const { pythonCall } = require('./bridge');
       const promise = pythonCall({});
       jest.advanceTimersByTime(5100);
       await expect(promise).rejects.toThrow(/timeout/);
@@ -135,7 +135,7 @@ describe('ping / isAlive', () => {
   it('ping resolves to the dispatcher response', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { ping } = require('./python');
+    const { ping } = require('./bridge');
     const promise = ping();
     await new Promise((r) => setImmediate(r));
     socket.emit('data', '{"ok":true,"version":1}\n');
@@ -145,7 +145,7 @@ describe('ping / isAlive', () => {
   it('isAlive returns true on a successful ping', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { isAlive } = require('./python');
+    const { isAlive } = require('./bridge');
     const promise = isAlive();
     await new Promise((r) => setImmediate(r));
     socket.emit('data', '{"ok":true}\n');
@@ -155,7 +155,7 @@ describe('ping / isAlive', () => {
   it('isAlive returns false when ping fails', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { isAlive } = require('./python');
+    const { isAlive } = require('./bridge');
     const promise = isAlive();
     await new Promise((r) => setImmediate(r));
     socket.emit('error', new Error('refused'));
@@ -165,7 +165,7 @@ describe('ping / isAlive', () => {
   it('isAlive returns false when ping returns ok:false', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { isAlive } = require('./python');
+    const { isAlive } = require('./bridge');
     const promise = isAlive();
     await new Promise((r) => setImmediate(r));
     socket.emit('data', '{"ok":false}\n');
@@ -177,7 +177,7 @@ describe('browser helpers', () => {
   it('browserList sends method browser_list with path', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { browserList } = require('./python');
+    const { browserList } = require('./bridge');
     const promise = browserList('instruments');
     await new Promise((r) => setImmediate(r));
     expect(socket.write.mock.calls[0][0]).toContain('"method":"browser_list"');
@@ -189,7 +189,7 @@ describe('browser helpers', () => {
   it('browserList defaults missing path to empty string', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { browserList } = require('./python');
+    const { browserList } = require('./bridge');
     const promise = browserList();
     await new Promise((r) => setImmediate(r));
     expect(socket.write.mock.calls[0][0]).toContain('"path":""');
@@ -200,7 +200,7 @@ describe('browser helpers', () => {
   it('browserLoadItem sends method browser_load with path', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { browserLoadItem } = require('./python');
+    const { browserLoadItem } = require('./bridge');
     const promise = browserLoadItem('/drums/Foo.adg');
     await new Promise((r) => setImmediate(r));
     expect(socket.write.mock.calls[0][0]).toContain('"method":"browser_load"');
@@ -212,7 +212,7 @@ describe('browser helpers', () => {
   it('browserSearch sends method browser_search with query/root/limit', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { browserSearch } = require('./python');
+    const { browserSearch } = require('./bridge');
     const promise = browserSearch('kick', 'drums', 10);
     await new Promise((r) => setImmediate(r));
     const sent = socket.write.mock.calls[0][0];
@@ -226,7 +226,7 @@ describe('browser helpers', () => {
   it('browserSearch defaults missing root + limit', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { browserSearch } = require('./python');
+    const { browserSearch } = require('./bridge');
     const promise = browserSearch('foo');
     await new Promise((r) => setImmediate(r));
     const sent = socket.write.mock.calls[0][0];
@@ -241,7 +241,7 @@ describe('midi helpers', () => {
   it('sendMidi sends method send_midi with status/data1/data2', async () => {
     const socket = makeFakeSocket();
     net.Socket.mockImplementation(() => socket);
-    const { sendMidi } = require('./python');
+    const { sendMidi } = require('./bridge');
     const promise = sendMidi(0x90, 60, 100);
     await new Promise((r) => setImmediate(r));
     const sent = socket.write.mock.calls[0][0];

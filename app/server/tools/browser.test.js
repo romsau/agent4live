@@ -1,9 +1,9 @@
 'use strict';
 
-// Tests for the browser tool family. The Python companion is mocked at the
+// Tests for the browser tool family. The Python extension is mocked at the
 // helper level so we never touch a real socket.
 
-jest.mock('../python', () => ({
+jest.mock('../extension/bridge', () => ({
   isAlive: jest.fn(),
   browserList: jest.fn(),
   browserLoadItem: jest.fn(),
@@ -12,7 +12,7 @@ jest.mock('../python', () => ({
 jest.mock('../ui/state', () => ({ uiLog: jest.fn() }));
 
 const { collectTools, callHandlerText } = require('../../../tools/test/tool-test-utils');
-const python = require('../python');
+const python = require('../extension/bridge');
 const family = require('./browser');
 
 const tools = collectTools(family.register);
@@ -34,12 +34,12 @@ it('registers the 3 browser tools', () => {
   ]);
 });
 
-describe('companion gate', () => {
-  it('throws a friendly error when the companion is not reachable', async () => {
+describe('extension gate', () => {
+  it('throws a friendly error when the extension is not reachable', async () => {
     python.isAlive.mockResolvedValue(false);
     await expect(
       callHandlerText(byName('browser_list_items').handler, { path: '' }),
-    ).rejects.toThrow(/requires the agent4live Python companion/);
+    ).rejects.toThrow(/requires the agent4live Python extension/);
   });
 });
 
@@ -59,7 +59,7 @@ describe('browser_list_items', () => {
     ]);
   });
 
-  it('surfaces the companion error when ok=false', async () => {
+  it('surfaces the extension error when ok=false', async () => {
     python.isAlive.mockResolvedValue(true);
     python.browserList.mockResolvedValue({ ok: false, error: 'unknown root: foo' });
     await expect(
@@ -72,7 +72,7 @@ describe('browser_list_items', () => {
     python.browserList.mockResolvedValue({ ok: false });
     await expect(
       callHandlerText(byName('browser_list_items').handler, { path: '' }),
-    ).rejects.toThrow(/companion returned an error/);
+    ).rejects.toThrow(/extension returned an error/);
   });
 });
 
@@ -115,7 +115,7 @@ describe('browser_search', () => {
     expect(parsed.truncated).toBe(false);
   });
 
-  it('surfaces a missing-query error from the companion', async () => {
+  it('surfaces a missing-query error from the extension', async () => {
     python.isAlive.mockResolvedValue(true);
     python.browserSearch.mockResolvedValue({ ok: false, error: 'missing query' });
     await expect(

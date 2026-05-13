@@ -91,6 +91,33 @@
       .pnl.clickable:hover::after {
         color: #ccc;
       }
+      /* Custom tooltip — instantané (vs `title=` natif qui attend 1-2s), stylé
+         pour matcher le reste du UI. Placé dans un .pnl.clickable enfant ; le
+         positioning absolu se base sur le parent (la card) en `position:
+         relative` déjà set sur .pnl.clickable. */
+      .pnl .tooltip {
+        position: absolute;
+        display: none;
+        top: 100%;
+        right: 0;
+        margin-top: 4px;
+        width: 200px;
+        background: #111;
+        border: 1px solid #444;
+        border-radius: 3px;
+        padding: 6px 8px;
+        color: #ccc;
+        font-size: 9px;
+        line-height: 1.4;
+        text-transform: none;
+        letter-spacing: 0.2px;
+        pointer-events: none;
+        z-index: 50;
+        white-space: normal;
+      }
+      .pnl.clickable:hover .tooltip {
+        display: block;
+      }
       .lbl {
         font-size: 9px;
         color: #838383;
@@ -536,6 +563,13 @@
       <div class="pnl clickable" id="agent-card" title="Edit agent consent">
         <span class="lbl" id="agent-lbl">no agent</span>
       </div>
+      <div class="pnl clickable" id="limits-card" style="margin-left: auto">
+        <span class="lbl" id="limits-lbl">limits on</span>
+        <span class="tooltip"
+          >Rate-limit protects against runaway agents (max 60 req/s on /mcp). Click to disable it
+          for 1 hour — useful for legitimate large scans. Auto-resumes after.</span
+        >
+      </div>
     </div>
     <div class="main">
       <div id="log"></div>
@@ -579,7 +613,7 @@
       // know whether we're still in firstBoot.
       var manualOpen = false;
       var latestState = null;
-      // After a successful POST /companion/install we lock the UI on the
+      // After a successful POST /extension/install we lock the UI on the
       // "Restart Live" screen until the device reboots. The flag resets on
       // reload (full page refresh after Live restart) so it's transient.
       var justInstalled = false;
@@ -719,7 +753,21 @@
         agentLbl.textContent = consented ? consented[1] : 'no agent';
         agentLbl.className = consented ? 'lbl g' : 'lbl d';
 
-        // Cascade: companion install → companion configure → consent.
+        // LIMITS card (Gap B Phase 2) : reflects /mcp rate-limit bypass state.
+        // bypassUntil > now → "limits off" orange + countdown in minutes ;
+        // else → "limits on" gray (passive default, no active alert needed).
+        var limitsLbl = document.getElementById('limits-lbl');
+        var bypassUntil = state.mcpRateLimitBypassUntil;
+        if (bypassUntil && Date.now() < bypassUntil) {
+          var remainingMin = Math.ceil((bypassUntil - Date.now()) / 60000);
+          limitsLbl.textContent = 'limits off (' + remainingMin + 'm)';
+          limitsLbl.className = 'lbl o';
+        } else {
+          limitsLbl.textContent = 'limits on';
+          limitsLbl.className = 'lbl d';
+        }
+
+        // Cascade: extension install → extension configure → consent.
         // At most one modal is visible at a time. Order matches the boot
         // sequence checks in the device: script presence → ping → agent.
         var modalInstall = document.getElementById('modal-install');
@@ -729,20 +777,20 @@
 
         // Default: hide everything ; below we re-show whichever applies.
         modalInstall.hidden = true;
-        modalInstalled.hidden = !justInstalled; // shown only after a successful POST /companion/install
+        modalInstalled.hidden = !justInstalled; // shown only after a successful POST /extension/install
         modalConfigure.hidden = true;
         consentEl.hidden = true;
 
-        // companionStatus = null means the device just booted and
-        // updateCompanionStatus() hasn't returned yet. Skip the modal cascade
+        // extensionStatus = null means the device just booted and
+        // updateExtensionStatus() hasn't returned yet. Skip the modal cascade
         // entirely until we have a real value, otherwise users with a fully
         // configured setup briefly see Modal A flash before the real state
         // arrives and the UI snaps to the default view.
-        if (state.companionStatus !== null && state.companionStatus !== undefined) {
-          var companion = state.companionStatus;
-          if (!justInstalled && !companion.scriptInstalled) {
+        if (state.extensionStatus !== null && state.extensionStatus !== undefined) {
+          var extension = state.extensionStatus;
+          if (!justInstalled && !extension.scriptInstalled) {
             modalInstall.hidden = false;
-          } else if (!justInstalled && !companion.pingOk) {
+          } else if (!justInstalled && !extension.pingOk) {
             modalConfigure.hidden = false;
           } else if (state.firstBoot || manualOpen) {
             renderConsentModal(agents);
@@ -788,7 +836,7 @@
         }
       }
 
-      // Install button (Modal A) — POST /companion/install, lock the UI on
+      // Install button (Modal A) — POST /extension/install, lock the UI on
       // the "Restart Live" screen on success or show error in red on failure.
       document.getElementById('install-btn').addEventListener('click', function () {
         var btn = this;
@@ -796,7 +844,7 @@
         btn.disabled = true;
         btn.textContent = 'INSTALLING…';
         errEl.hidden = true;
-        fetch('/companion/install', { method: 'POST' })
+        fetch('/extension/install', { method: 'POST' })
           .then(function (r) {
             return r.json();
           })
@@ -820,16 +868,16 @@
           });
       });
 
-      // Recheck button (Modal B) — re-ping the companion. If still ko after
+      // Recheck button (Modal B) — re-ping the extension. If still ko after
       // a brief delay, surface a "still not detected" hint. The poll loop
-      // automatically updates the modal when companionStatus.pingOk flips true.
+      // automatically updates the modal when extensionStatus.pingOk flips true.
       document.getElementById('recheck-btn').addEventListener('click', function () {
         var btn = this;
         var errEl = document.getElementById('configure-error');
         btn.disabled = true;
         btn.textContent = 'CHECKING…';
         errEl.hidden = true;
-        fetch('/companion/recheck', { method: 'POST' })
+        fetch('/extension/recheck', { method: 'POST' })
           .then(function (r) {
             // Defensive: if the server replied with non-JSON (race, crash mid-
             // response…), don't surface the raw parse error — fall through to
@@ -875,6 +923,33 @@
         } else {
           consentEl.hidden = true;
         }
+      });
+
+      // LIMITS card → toggle the /mcp rate-limit bypass. Direct toggle (no
+      // confirmation modal pour l'instant) : on alterne entre "limits on" et
+      // "limits off (15m)" en un clic. La couleur rouge + le countdown
+      // visible au repos évitent l'oubli, c'est le garde-fou suffisant.
+      document.getElementById('limits-card').addEventListener('click', function () {
+        var currentlyBypassed =
+          latestState &&
+          latestState.mcpRateLimitBypassUntil &&
+          Date.now() < latestState.mcpRateLimitBypassUntil;
+        fetch('/preferences/ratelimit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bypassMcp: !currentlyBypassed }),
+        })
+          .catch(function () {})
+          .then(function () {
+            // Force-poll /ui/state pour rendre le countdown immédiatement,
+            // sans attendre le prochain tick de 500ms.
+            return fetch('/ui/state')
+              .then(function (r) {
+                return r.json();
+              })
+              .then(update)
+              .catch(function () {});
+          });
       });
 
       document.getElementById('refresh-btn').addEventListener('click', function () {

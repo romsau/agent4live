@@ -63,7 +63,7 @@ cd agent4live
 npm install      # runtime deps + tooling (eslint, prettier, esbuild)
 ```
 
-> **Build-time requirement:** `python3.11` on the dev box (`brew install python@3.11`). `npm run build` invokes it once to compile the companion Remote Script to `.pyc`, which esbuild then embeds as raw bytes inside `dist/staging/index.js`. End users never need Python.
+> **Build-time requirement:** `python3.11` on the dev box (`brew install python@3.11`). `npm run build` invokes it once to compile the extension Remote Script to `.pyc`, which esbuild then embeds as raw bytes inside `dist/staging/index.js`. End users never need Python.
 
 ### Run in dev mode
 
