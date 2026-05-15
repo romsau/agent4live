@@ -6,5 +6,6 @@ coverage/
 dist/staging/
 docs/api/
 node_modules/
+.superpowers/
 ROADMAP.md
 app/python_scripts/__init__.pyc
