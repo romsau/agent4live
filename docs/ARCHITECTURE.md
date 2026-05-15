@@ -8,14 +8,14 @@ Pour les bugs courants voir [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
 ## Architecture
 
 ```
-Claude Code / Codex CLI / Gemini CLI / OpenCode
+Claude Code / Gemini CLI / OpenCode
         │  HTTP POST :19845/mcp  (Bearer token + Origin check)
         ▼
 ┌─────────────────────────────────────────────────────┐
 │  node.script — app/index.js → app/server/index.js   │
 │  • HTTP server + transport MCP Streamable HTTP      │
 │  • 232 outils en 14 familles, file LOM séquentielle │
-│  • Auto-discovery 4 clients (Claude/Codex/…)        │
+│  • Auto-discovery 3 clients (Claude/Gemini/OpenCode)│
 │  • SSE streaming via MCP resources                  │
 │  • Sert /ui (jweb) + /ui/state                      │
 └──────────────┬──────────────────────────────────────┘
@@ -200,7 +200,7 @@ Le device ne touche **jamais** une config CLI sans consentement explicite. Au 1e
       "claudeCode": { "consented": true,
                       "consented_at": "2026-05-03T14:20:00.000Z",
                       "url_at_consent": "http://127.0.0.1:19845/mcp" },
-      "codex":    { "consented": false },
+      "gemini":   { "consented": false },
       ...
     }
   }
@@ -215,18 +215,17 @@ Endpoints HTTP exposés (tous derrière le check Origin) :
 
 UI : la card AGENT dans le header est cliquable et **rouvre** le modal post-consent (re-clic ferme = "miss click"). Chaque ouverture rend les checkboxes **toutes décochées** ; cocher un agent persiste immédiatement et ferme le modal.
 
-**Migration silencieuse** au tout 1er boot (`preferences.json` absent) : on scanne les 4 configs CLI à la recherche d'une entrée `agent4live-ableton` pointant sur localhost, et on adopte ces consents implicites pour ne pas casser un user qui upgrade depuis l'ancien auto-register.
+**Migration silencieuse** au tout 1er boot (`preferences.json` absent) : on scanne les 3 configs CLI à la recherche d'une entrée `agent4live-ableton` pointant sur localhost, et on adopte ces consents implicites pour ne pas casser un user qui upgrade depuis l'ancien auto-register.
 
 | CLI         | Fichier                            | Format | Champ URL                  |
 | ----------- | ---------------------------------- | ------ | -------------------------- |
 | Claude Code | `~/.claude.json`                   | JSON   | `mcpServers[name].url`     |
 | OpenCode    | `~/.config/opencode/opencode.json` | JSON   | `mcp[name].url`            |
 | Gemini      | `~/.gemini/settings.json`          | JSON   | `mcpServers[name].httpUrl` |
-| Codex       | `~/.codex/config.toml`             | TOML   | `[mcp_servers.<name>].url` |
 
-Pour Codex on n'utilise pas de parser TOML (zéro dépendance ajoutée au `.amxd` frozen) — un scan stateful ligne-à-ligne suffit puisqu'on cherche **une seule** section connue et **une seule** clé `url`. Toutes les branches sont défensives (`try { } catch (_) {}`) : un fichier malformé retombe sur le modal, pas de régression.
+Toutes les branches de migration sont défensives (`try { } catch (_) {}`) : un fichier malformé retombe sur le modal, pas de régression.
 
-**Var env `AGENT4LIVE_AUTO_REGISTER=claude,codex,gemini,opencode`** : court-circuit pour CI / headless. Marque les agents listés comme consentis avant l'affichage du modal.
+**Var env `AGENT4LIVE_AUTO_REGISTER=claude,gemini,opencode`** : court-circuit pour CI / headless. Marque les agents listés comme consentis avant l'affichage du modal.
 
 ### Multi-device — mode passif
 
@@ -256,7 +255,7 @@ Polling : la page sert `GET /ui` (HTML statique inliné dans `app/server/ui/acti
 
 ```js
 { mode, activePeer, connected, port, liveApiOk, latencyMs, logs[],
-  agents: { claudeCode, codex, gemini, opencode } }
+  agents: { claudeCode, gemini, opencode } }
 ```
 
 `logs[]` = max 50 entrées `{ts, tool, result, isError}`, FIFO via `uiLog()`.

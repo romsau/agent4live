@@ -1,6 +1,6 @@
 # AGENT4LIVE
 
-Agent4live is a Max for Live device that embeds a Model Context Protocol server. Drop it on a track and any MCP-compatible agent — Claude Code, Codex CLI, Gemini CLI, OpenCode — gets **230 tools** to control your set: tempo, tracks, clips, devices, racks, automation, MIDI notes, Browser (load presets / instruments / drum kits), tuning systems, view navigation, dialogs, plus live SSE streams of LiveAPI observers.
+Agent4live is a Max for Live device that embeds a Model Context Protocol server. Drop it on a track and any MCP-compatible agent — Claude Code, Gemini CLI, OpenCode — gets **230 tools** to control your set: tempo, tracks, clips, devices, racks, automation, MIDI notes, Browser (load presets / instruments / drum kits), tuning systems, view navigation, dialogs, plus live SSE streams of LiveAPI observers.
 
 No external server. No environment variables. No config files to edit.
 
@@ -26,9 +26,10 @@ The device auto-registers itself in your agent's MCP config the first time you d
 - **macOS** (Windows soon)
 - Supported agents:
   - [Claude Code](https://claude.com/claude-code)
-  - [Codex CLI](https://github.com/openai/codex)
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli)
   - [OpenCode](https://opencode.ai)
+
+  > _Codex CLI was temporarily removed in v1.3.0._
 
 ---
 
@@ -41,7 +42,7 @@ About 30 seconds the first time, then nothing to do ever again.
    1. **Click "Install"** — agent4live drops a small helper file into your Ableton library.
    2. **Restart Live** — needed once so Ableton picks the helper up.
    3. **Turn the helper on** — open Live's Preferences → Control Surfaces, and on any free row pick `agent4live`.
-   4. **Pick your agent** — tick the CLI you use (Claude Code / Codex / Gemini / OpenCode). agent4live takes care of the connection.
+   4. **Pick your agent** — tick the CLI you use (Claude Code / Gemini / OpenCode). agent4live takes care of the connection.
 3. **Open a chat** with your agent and ask anything about your set:
 
    ```
@@ -106,7 +107,7 @@ When you drop the device and complete the setup, agent4live touches the followin
 | `~/Music/Ableton/User Library/Remote Scripts/agent4live/` | Small Python helper Ableton needs to expose the Browser API to the device. The compiled bytecode is bundled inside the `.amxd` — you don't need Python installed. | Modal "Install"                  |
 | `~/.agent4live-ableton-mcp/endpoint.json` (chmod 600)     | Server URL + Bearer token, so already-registered agents reconnect on next boot.                                                                                   | First boot                       |
 | `~/.agent4live-ableton-mcp/preferences.json`              | Records which agents you ticked in the consent modal, so the choice persists across sessions.                                                                     | Consent modal                    |
-| `~/.claude.json`, `~/.config/opencode/opencode.json`      | MCP server entry added to the configs of the agents you ticked. Codex and Gemini are configured through their own `mcp add` CLI command.                          | Consent modal                    |
+| `~/.claude.json`, `~/.config/opencode/opencode.json`      | MCP server entry added to the configs of the agents you ticked. Gemini is configured through its own `mcp add` CLI command.                                       | Consent modal                    |
 | `~/.claude/skills/agent4live/SKILL.md`                    | Skill that primes Claude Code with agent4live conventions and pitfalls.                                                                                           | Consent modal (Claude Code only) |
 
 Untick an agent in the modal at any time to remove its config entry cleanly.

@@ -41,7 +41,7 @@ describe('fixtures', () => {
     expect(fixtures['consent-modal-mixed'].firstBoot).toBe(true);
     expect(fixtures['consent-modal-mixed'].agents.gemini.detected).toBe(false);
     expect(fixtures['consent-modal-all-detected'].firstBoot).toBe(true);
-    for (const k of ['claudeCode', 'codex', 'gemini', 'opencode']) {
+    for (const k of ['claudeCode', 'gemini', 'opencode']) {
       expect(fixtures['consent-modal-all-detected'].agents[k].consented).toBe(false);
       expect(fixtures['consent-modal-all-detected'].agents[k].detected).toBe(true);
     }

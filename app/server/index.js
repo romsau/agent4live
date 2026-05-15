@@ -217,7 +217,7 @@ async function applyConsent(agent, consented, prefs, url, token) {
 
 /**
  * POST /preferences — batch update of all agents at once. Body shape:
- * `{ claudeCode: bool, codex: bool, gemini: bool, opencode: bool }`
+ * `{ claudeCode: bool, gemini: bool, opencode: bool }`
  * Missing keys are left untouched.
  *
  * @param {http.IncomingMessage} req

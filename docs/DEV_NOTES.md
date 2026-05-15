@@ -1,6 +1,6 @@
 # Notes techniques pour les sessions agent
 
-Détails de référence migrés depuis `.claude/CLAUDE.md` pour garder le fichier d'instructions principal léger. Conventions valables pour Claude Code, Codex CLI, Gemini CLI, OpenCode (ou tout autre agent qui pilote ce repo). À consulter quand on touche aux tests, qu'on prépare un commit, ou qu'on ajoute un outil LOM.
+Détails de référence migrés depuis `.claude/CLAUDE.md` pour garder le fichier d'instructions principal léger. Conventions valables pour Claude Code, Gemini CLI, OpenCode (ou tout autre agent qui pilote ce repo). À consulter quand on touche aux tests, qu'on prépare un commit, ou qu'on ajoute un outil LOM.
 
 ---
 
@@ -83,19 +83,63 @@ grep -c "agent4live-ableton-mcp" ~/.claude.json 2>/dev/null
 
 Le check `server live` doit renvoyer `000` (pas de serveur en cours) avant de reset, sinon il y a un device actif quelque part qui va recréer les fichiers en parallèle.
 
-**Étendre le reset pour valider les nouvelles branches de migration silencieuse** : si on veut tester que la migration silencieuse Gemini ou Codex marche, il faut **fabriquer** une entrée localhost dans leur config (les fichiers n'existent pas par défaut sur une machine vierge) :
+**Étendre le reset pour valider la migration silencieuse Gemini** : si on veut tester que la migration silencieuse Gemini marche, il faut **fabriquer** une entrée localhost dans sa config (le fichier n'existe pas par défaut sur une machine vierge) :
 
 ```bash
 mkdir -p ~/.gemini && cat > ~/.gemini/settings.json <<'EOF'
 { "mcpServers": { "agent4live-ableton-mcp": { "httpUrl": "http://127.0.0.1:19845/mcp" } } }
 EOF
-mkdir -p ~/.codex && cat > ~/.codex/config.toml <<'EOF'
-[mcp_servers.agent4live-ableton-mcp]
-url = "http://127.0.0.1:19845/mcp"
-EOF
 ```
 
-Au prochain boot, ces deux agents doivent apparaître comme consentis sans que Modal C demande. À nettoyer après test (`rm ~/.gemini/settings.json ~/.codex/config.toml`).
+Au prochain boot, Gemini doit apparaître comme consenti sans que Modal C demande. À nettoyer après test (`rm ~/.gemini/settings.json`).
+
+---
+
+## Smoke-test sécurité avant release
+
+**Quand** : avant chaque `feat:` / `fix:` qui touche `app/server/security/`, `app/server/index.js` (routing), `discovery.js` (registration), ou avant un release user-facing. Les tests unitaires Jest valident le code en mock ; ce smoke-test vérifie que **le serveur HTTP réel** expose bien les guards (un refactor peut casser le binding sans casser les unit tests).
+
+**Pré-requis** : device monté dans Live, server répond sur `:19845` (un `curl http://127.0.0.1:19845/ui/state` retourne 200).
+
+```bash
+TOKEN=$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.env.HOME+'/.agent4live-ableton-mcp/endpoint.json','utf8')).token)")
+URL="http://127.0.0.1:19845"
+
+# ── Auth Bearer ──────────────────────────────────────────────────────
+# Attendu : 401 / 401 / 200 (initialize MCP)
+curl -s -o /dev/null -w "no-bearer=%{http_code}\n"   -X POST "$URL/mcp" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"initialize","id":1}'
+curl -s -o /dev/null -w "wrong-bearer=%{http_code}\n" -X POST "$URL/mcp" -H "Authorization: Bearer wrongtoken" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"initialize","id":1}'
+curl -s -o /dev/null -w "good-bearer=%{http_code}\n"  -X POST "$URL/mcp" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -d '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
+
+# ── Origin guard (uniform sur tous les endpoints) ────────────────────
+# Attendu : 403 partout
+for path in /mcp /ui /ui/state /detect /preferences /preferences/rotate-token /extension/recheck /admin; do
+  printf "remote-origin %-32s = " "$path"
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Origin: https://evil.com" "$URL$path"
+done
+
+# ── Token ne fuite pas via /ui/state ─────────────────────────────────
+# Attendu : "" (token absent)
+curl -s "$URL/ui/state" | grep -o '"token":[^,}]*' || echo "ok: token absent"
+
+# ── Rate limit kick-in ───────────────────────────────────────────────
+# Attendu : un mix de 401 + 429 (au moins quelques 429)
+for i in $(seq 1 200); do
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST "$URL/mcp" -d '{}' &
+done | sort | uniq -c
+wait
+
+# ── chmod 0o600 sur les fichiers sensibles ───────────────────────────
+# Attendu : -rw------- sur les trois
+ls -la ~/.agent4live-ableton-mcp/{endpoint,preferences}.json ~/.agent4live-ableton-mcp/audit.log
+
+# ── runtime.log ne contient pas le token (file 0o644 toléré, contenu non) ─
+grep -c "$TOKEN" ~/.agent4live-ableton-mcp/runtime.log && echo "FUITE !" || echo "ok: token absent du log"
+```
+
+**Interprétation** : tout `OK` / valeurs attendues = green light pour Freeze. Une réponse inattendue (genre `200` au lieu de `403` sur Origin remote) = stop, investiguer côté `app/server/security/auth.js` ou le routeur avant de release.
+
+**Limites** : ce smoke-test ne couvre **pas** la sécurité du transport MCP au-delà de `initialize` (pas de tool/list avec session ID), ni les Zod validators côté tool args, ni les rate-limits côté `app/server/security/ratelimit.js` au niveau couche métier (par-token plutôt qu'IP). Pour ça → tests unitaires Jest qui sont exhaustifs.
 
 ---
 

@@ -12,7 +12,7 @@ const { log } = require('../ui/state');
  * CSRF defense — only accept requests whose Origin header points to localhost
  * (or has no Origin at all, which means a non-browser client like an agent
  * CLI). Accepting an absent Origin is a deliberate trade-off (Gap C) : agent
- * CLIs like Codex / curl don't send one, and the Bearer token guards the
+ * CLIs and curl don't send one, and the Bearer token guards the
  * sensitive endpoints regardless.
  *
  * @param {string|undefined} origin - Request's Origin header.

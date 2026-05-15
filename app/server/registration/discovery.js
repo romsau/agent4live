@@ -1,14 +1,14 @@
 'use strict';
 
-// Discovery + auto-registration with agent CLIs (Claude / Codex / Gemini /
-// OpenCode). On boot, the active device:
+// Discovery + auto-registration with agent CLIs (Claude / Gemini / OpenCode).
+// On boot, the active device:
 //   1. Generates (or reloads) a Bearer token.
 //   2. Writes ~/.agent4live-ableton-mcp/endpoint.json with the URL + token (mode 0o600).
 //   3. Registers itself with each detected CLI's MCP config.
 //
-// Each CLI has its own registration mechanism — Claude/Codex/Gemini use
-// their own `mcp add` commands ; OpenCode is JSON-merged into its config
-// because its CLI is interactive.
+// Each CLI has its own registration mechanism — Claude/Gemini use their own
+// `mcp add` commands ; OpenCode is JSON-merged into its config because its
+// CLI is interactive.
 
 const fs = require('fs');
 const path = require('path');
@@ -29,10 +29,10 @@ const OPENCODE_CONFIG = path.join(os.homedir(), '.config', 'opencode', 'opencode
 const ENDPOINT_DIR = path.join(os.homedir(), '.agent4live-ableton-mcp');
 const ENDPOINT_FILE = path.join(ENDPOINT_DIR, 'endpoint.json');
 
-// Claude Code is the only one of the four supported agents that has a native
-// skill mechanism. For Codex / Gemini / OpenCode, the MCP tool
-// `get_usage_guide` (with its prominent "Read this once" description) covers
-// the same role at session start without touching their config files.
+// Claude Code is the only one of the three supported agents that has a native
+// skill mechanism. For Gemini / OpenCode, the MCP tool `get_usage_guide`
+// (with its prominent "Read this once" description) covers the same role at
+// session start without touching their config files.
 const CLAUDE_SKILL_DIR = path.join(os.homedir(), '.claude', 'skills', 'agent4live');
 const CLAUDE_SKILL_FILE = path.join(CLAUDE_SKILL_DIR, 'SKILL.md');
 
@@ -59,10 +59,9 @@ function loadOrGenerateToken() {
 }
 
 // uiKey → CLI binary name. Drives both `detectAgents` (boot-time probe of all
-// 4) and the per-agent helpers below (e.g. detectClaude).
+// 3) and the per-agent helpers below (e.g. detectClaude).
 const AGENT_BINS = {
   claudeCode: 'claude',
-  codex: 'codex',
   gemini: 'gemini',
   opencode: 'opencode',
 };
@@ -94,11 +93,11 @@ function detectClaude() {
 }
 
 /**
- * Probe all 4 supported agent CLIs (Claude / Codex / Gemini / OpenCode) and
- * update their uiState entries. Called once at boot so the consent modal
- * shows the actual install state of every agent — without this, only Claude
- * was probed and Codex/Gemini/OpenCode appeared grayed-out + linking to
- * GitHub even when the user had them installed.
+ * Probe all 3 supported agent CLIs (Claude / Gemini / OpenCode) and update
+ * their uiState entries. Called once at boot so the consent modal shows the
+ * actual install state of every agent — without this, only Claude was
+ * probed and Gemini/OpenCode appeared grayed-out + linking to GitHub even
+ * when the user had them installed.
  */
 function detectAgents() {
   for (const [uiKey, binName] of Object.entries(AGENT_BINS)) {
@@ -261,25 +260,6 @@ async function unregisterFromClaude() {
 }
 
 /**
- * Remove the Codex CLI MCP entry. No-op if the binary isn't found.
- *
- * @returns {Promise<void>}
- */
-async function unregisterCodex() {
-  const binaryPath = resolveBin('codex');
-  if (!binaryPath) return;
-  try {
-    await runCmd(binaryPath, ['mcp', 'remove', SERVER_NAME], {
-      timeout: TEARDOWN_SUBPROCESS_TIMEOUT_MS,
-    });
-    uiState.agents.codex.registered = false;
-    log('codex: unregistered');
-  } catch (err) {
-    log(`codex unregister failed (best-effort): ${err.message}`);
-  }
-}
-
-/**
  * Remove the Gemini CLI MCP entry. No-op if the binary isn't found.
  *
  * @returns {Promise<void>}
@@ -330,7 +310,7 @@ function unregisterOpenCode() {
  * agent CLIs. CLI removes run in parallel; OpenCode is a sync JSON edit.
  */
 async function teardownDiscovery() {
-  await Promise.allSettled([unregisterFromClaude(), unregisterCodex(), unregisterGemini()]);
+  await Promise.allSettled([unregisterFromClaude(), unregisterGemini()]);
   unregisterOpenCode();
   try {
     fs.unlinkSync(ENDPOINT_FILE);
@@ -365,7 +345,7 @@ function runCmd(binaryPath, args, opts) {
  * (Node-for-Max inherits a minimal PATH), then falls back to asking the
  * user's login shell — picks up custom paths from .zshrc / asdf / mise / etc.
  *
- * @param {string} name - CLI binary name (e.g. "claude", "codex").
+ * @param {string} name - CLI binary name (e.g. "claude", "gemini").
  * @returns {string|null} Absolute path to the binary, or null if not found.
  */
 /**
@@ -399,8 +379,8 @@ function _nvmCandidates(name) {
 }
 
 /**
- * Resolve the absolute path of a CLI binary (claude / codex / gemini /
- * opencode) on disk, or null if not found. Uses an explicit candidate list
+ * Resolve the absolute path of a CLI binary (claude / gemini / opencode) on
+ * disk, or null if not found. Uses an explicit candidate list
  * for the well-known install locations + NVM probe + a shell fallback.
  *
  * @param {string} name - CLI binary name (e.g. "claude", "gemini").
@@ -447,40 +427,6 @@ function resolveBin(name) {
     }
   } catch (_) {}
   return null;
-}
-
-/**
- * Register the device with Codex CLI's MCP config.
- *
- * @param {string} url
- * @param {string} token
- */
-async function registerCodex(url, token) {
-  const binaryPath = resolveBin('codex');
-  if (!binaryPath) {
-    log('codex not found');
-    return;
-  }
-  uiState.agents.codex.detected = true;
-  const headerArg = `Authorization: Bearer ${token}`;
-  try {
-    const list = await runCmd(binaryPath, ['mcp', 'list']);
-    if (list.includes(SERVER_NAME)) {
-      // Trust the existing entry — re-registration would need a remove first.
-      uiState.agents.codex.registered = true;
-      log('codex: already registered (token must match endpoint.json)');
-      return;
-    }
-  } catch (_) {}
-  try {
-    await runCmd(binaryPath, ['mcp', 'add', SERVER_NAME, '--url', url, '--header', headerArg]);
-    uiState.agents.codex.registered = true;
-    log('codex: registered (with auth)');
-  } catch (err) {
-    log(
-      `codex mcp add failed: ${err.message} — run manually: codex mcp add ${SERVER_NAME} --url ${url} --header "${headerArg}"`,
-    );
-  }
 }
 
 /**
@@ -613,8 +559,8 @@ function withRegistrationTimeout(promise, agentLabel) {
 /**
  * Register the device with the agents the user has explicitly consented to.
  * Reads `prefs.agents` and only acts on entries with `consented: true`.
- * OpenCode is sync ; Codex + Gemini run in parallel, each with its own
- * timeout so a slow/broken CLI doesn't block the others.
+ * Claude + OpenCode are sync ; Gemini runs with its own timeout so a slow/
+ * broken CLI doesn't block the others.
  *
  * @param {{ agents?: object }} prefs
  * @param {string} url
@@ -624,7 +570,6 @@ function withRegistrationTimeout(promise, agentLabel) {
 function setupConsentedClients(prefs, url, token) {
   const agents = (prefs && prefs.agents) || {};
   const claude = agents.claudeCode && agents.claudeCode.consented;
-  const codex = agents.codex && agents.codex.consented;
   const gemini = agents.gemini && agents.gemini.consented;
   const opencode = agents.opencode && agents.opencode.consented;
 
@@ -635,13 +580,6 @@ function setupConsentedClients(prefs, url, token) {
   if (opencode) registerOpenCode(url, token);
 
   const promises = [];
-  if (codex) {
-    promises.push(
-      withRegistrationTimeout(registerCodex(url, token), 'codex').catch((err) =>
-        log(`codex registration error: ${err.message}`),
-      ),
-    );
-  }
   if (gemini) {
     promises.push(
       withRegistrationTimeout(registerGemini(url, token), 'gemini').catch((err) =>
@@ -697,10 +635,10 @@ function uninstallSkill(agent) {
  * Register a single agent on demand (e.g. user clicked "Register" in the UI).
  * Also installs the agent4live skill if the agent supports a native skill
  * mechanism (Claude Code only — see installSkill). Returns a Promise that
- * settles when the registration completes (or times out for codex/gemini).
+ * settles when the registration completes (or times out for gemini).
  * Throws synchronously on unknown agent.
  *
- * @param {string} agent - 'claudeCode' | 'codex' | 'gemini' | 'opencode'
+ * @param {string} agent - 'claudeCode' | 'gemini' | 'opencode'
  * @param {string} url
  * @param {string} token
  * @returns {Promise<void>}
@@ -717,10 +655,6 @@ function registerOne(agent, url, token) {
       registerOpenCode(url, token);
       onSuccess();
       return Promise.resolve();
-    case 'codex':
-      return withRegistrationTimeout(registerCodex(url, token), 'codex')
-        .then(onSuccess)
-        .catch((err) => log(`codex registration error: ${err.message}`));
     case 'gemini':
       return withRegistrationTimeout(registerGemini(url, token), 'gemini')
         .then(onSuccess)
@@ -743,8 +677,6 @@ function unregisterOne(agent) {
     case 'claudeCode':
       uninstallSkill(agent);
       return unregisterFromClaude().then(onSuccess);
-    case 'codex':
-      return unregisterCodex().then(onSuccess);
     case 'gemini':
       return unregisterGemini().then(onSuccess);
     case 'opencode':

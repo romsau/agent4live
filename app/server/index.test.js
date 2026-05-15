@@ -65,7 +65,7 @@ function setupMocks() {
     isFirstBoot: jest.fn((p) => !p || !p.agents || Object.keys(p.agents).length === 0),
     migrateFromExistingConfigs: jest.fn(() => ({})),
     applyAutoRegisterEnv: jest.fn((prefs) => prefs),
-    AGENTS: ['claudeCode', 'codex', 'gemini', 'opencode'],
+    AGENTS: ['claudeCode', 'gemini', 'opencode'],
     PREFERENCES_FILE: '/tmp/fake-preferences.json',
     fs: {
       unlinkSync: jest.fn(),
@@ -324,7 +324,7 @@ describe('boot', () => {
     mocks.migrateFromExistingConfigs.mockReturnValue({});
     mocks.applyAutoRegisterEnv.mockImplementation((prefs) => {
       prefs.agents = prefs.agents || {};
-      prefs.agents.codex = { consented: true };
+      prefs.agents.gemini = { consented: true };
       return prefs;
     });
     withMocks(mocks);
@@ -386,7 +386,6 @@ describe('HTTP routes', () => {
     mocks.uiState.token = 'secret';
     mocks.uiState.agents = {
       claudeCode: { detected: true, registered: false },
-      codex: { detected: false, registered: false },
       gemini: { detected: false, registered: false },
       opencode: { detected: false, registered: false },
     };
@@ -398,7 +397,7 @@ describe('HTTP routes', () => {
     const body = JSON.parse(res.chunks[0]);
     expect(body.token).toBeUndefined();
     expect(body.agents.claudeCode.consented).toBe(true);
-    expect(body.agents.codex.consented).toBe(false);
+    expect(body.agents.gemini.consented).toBe(false);
     expect(body.firstBoot).toBe(false);
   });
 
@@ -406,7 +405,6 @@ describe('HTTP routes', () => {
     const { mocks, handler } = bootAndGetHandler();
     mocks.uiState.agents = {
       claudeCode: { detected: true, registered: false },
-      codex: { detected: false, registered: false },
       gemini: { detected: false, registered: false },
       opencode: { detected: false, registered: false },
     };
@@ -415,7 +413,7 @@ describe('HTTP routes', () => {
     handler(req, res);
     const body = JSON.parse(res.chunks[0]);
     expect(body.firstBoot).toBe(true);
-    for (const k of ['claudeCode', 'codex', 'gemini', 'opencode']) {
+    for (const k of ['claudeCode', 'gemini', 'opencode']) {
       expect(body.agents[k].consented).toBe(false);
     }
   });
@@ -500,11 +498,11 @@ describe('Preferences endpoints', () => {
 
   it('POST /preferences batch: registers consented, unregisters revoked, saves', async () => {
     const mocks = setupMocks();
-    // codex starts consented; the batch flips it off → triggers unregisterOne.
+    // gemini starts consented; the batch flips it off → triggers unregisterOne.
     // claudeCode starts unconsented; the batch flips it on → triggers registerOne.
     mocks.loadPreferences.mockReturnValue({
       version: 1,
-      agents: { codex: { consented: true } },
+      agents: { gemini: { consented: true } },
     });
     withMocks(mocks);
     jest.isolateModules(() => require('./index'));
@@ -513,7 +511,7 @@ describe('Preferences endpoints', () => {
     mocks.uiState.token = 'tok';
     const { req, res } = reqres('/preferences', 'POST', {
       claudeCode: true,
-      codex: false,
+      gemini: false,
     });
     handler(req, res);
     await flush();
@@ -522,15 +520,15 @@ describe('Preferences endpoints', () => {
       expect.stringContaining('/mcp'),
       'tok',
     );
-    expect(mocks.unregisterOne).toHaveBeenCalledWith('codex');
+    expect(mocks.unregisterOne).toHaveBeenCalledWith('gemini');
     expect(mocks.savePreferences).toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
   });
 
   it('POST /preferences batch: skips no-op (false→false and true→true) to avoid subprocess churn', async () => {
     const mocks = setupMocks();
-    // claudeCode already consented + codex already not consented.
-    // Sending {claudeCode: true, codex: false} should NOT trigger any subprocess.
+    // claudeCode already consented + gemini already not consented.
+    // Sending {claudeCode: true, gemini: false} should NOT trigger any subprocess.
     mocks.loadPreferences.mockReturnValue({
       version: 1,
       agents: { claudeCode: { consented: true } },
@@ -541,7 +539,7 @@ describe('Preferences endpoints', () => {
     const handler = mocks.getHandler();
     const { req, res } = reqres('/preferences', 'POST', {
       claudeCode: true,
-      codex: false,
+      gemini: false,
     });
     handler(req, res);
     await flush();
@@ -618,7 +616,7 @@ describe('Preferences endpoints', () => {
 
   it('POST /preferences/agent without consented field → 400', async () => {
     const { handler } = bootAndGetHandler();
-    const { req, res } = reqres('/preferences/agent/codex', 'POST', {});
+    const { req, res } = reqres('/preferences/agent/gemini', 'POST', {});
     handler(req, res);
     await flush();
     expect(res.statusCode).toBe(400);
@@ -626,7 +624,7 @@ describe('Preferences endpoints', () => {
 
   it('POST /preferences/agent with malformed JSON → 400 via outer catch', async () => {
     const { handler } = bootAndGetHandler();
-    const { req, res } = reqres('/preferences/agent/codex', 'POST', '{not-json');
+    const { req, res } = reqres('/preferences/agent/gemini', 'POST', '{not-json');
     handler(req, res);
     await flush();
     expect(res.statusCode).toBe(400);
@@ -638,7 +636,6 @@ describe('Preferences endpoints', () => {
     handler(req, res);
     await flush();
     expect(mocks.unregisterOne).toHaveBeenCalledWith('claudeCode');
-    expect(mocks.unregisterOne).toHaveBeenCalledWith('codex');
     expect(mocks.unregisterOne).toHaveBeenCalledWith('gemini');
     expect(mocks.unregisterOne).toHaveBeenCalledWith('opencode');
     expect(mocks.fs.unlinkSync).toHaveBeenCalledWith('/tmp/fake-preferences.json');

@@ -25,8 +25,8 @@ const SERVER_VERSION = require('../../package.json').version;
 // in <50ms ; 10s catches genuinely stuck calls without false-positiving on
 // transient stalls.
 const LOM_TIMEOUT_MS = 10000;
-// execFile / execFileSync against external CLIs (claude / codex / gemini /
-// opencode) when probing or registering. Tight because these are local IPC.
+// execFile / execFileSync against external CLIs (claude / gemini / opencode)
+// when probing or registering. Tight because these are local IPC.
 const SUBPROCESS_TIMEOUT_MS = 5000;
 // Ceiling on a single agent's full registration sequence (probe + maybe-add).
 // Wider than SUBPROCESS_TIMEOUT_MS because some CLIs run `mcp list` then

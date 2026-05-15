@@ -2,7 +2,7 @@
 
 // User consent persistence for agent CLI auto-registration.
 //
-// The device used to register itself in every detected CLI (Claude Code, Codex,
+// The device used to register itself in every detected CLI (Claude Code,
 // Gemini, OpenCode) automatically at boot — no consent. This module flips the
 // model to opt-in: the user's choice (per agent) is persisted in
 // ~/.agent4live-ableton-mcp/preferences.json (chmod 600). At every boot the
@@ -14,22 +14,17 @@
 //       "claudeCode": { "consented": true,
 //                       "consented_at": "2026-05-03T14:20:00.000Z",
 //                       "url_at_consent": "http://127.0.0.1:19845/mcp" },
-//       "codex":    { "consented": false },
+//       "gemini":     { "consented": false },
 //       ... } }
 //
 // Migration: when an old user updates the device, we scan their existing CLI
 // configs for entries pointing at localhost. If found we silently mark
 // `consented: true` so they don't lose access — they already implicitly
-// granted it via the previous version. The four CLIs we cover all expose a
-// flat config file readable from disk (no bin-in-PATH required) :
+// granted it via the previous version. The three CLIs we cover all expose a
+// flat JSON config file readable from disk (no bin-in-PATH required) :
 //   - Claude Code  → ~/.claude.json                 (JSON, mcpServers[name].url)
 //   - OpenCode     → ~/.config/opencode/opencode.json (JSON, mcp[name].url)
 //   - Gemini CLI   → ~/.gemini/settings.json        (JSON, mcpServers[name].httpUrl)
-//   - Codex CLI    → ~/.codex/config.toml           (TOML, [mcp_servers.<name>].url)
-//
-// The Codex branch uses a stateful line scanner instead of a TOML parser —
-// the migration only needs one section and one url, so a regex+section-tracker
-// is enough and keeps the project zero-extra-deps.
 
 const fs = require('fs');
 const path = require('path');
@@ -42,16 +37,14 @@ const PREFERENCES_FILE = path.join(PREFERENCES_DIR, 'preferences.json');
 const CLAUDE_CONFIG = path.join(os.homedir(), '.claude.json');
 const OPENCODE_CONFIG = path.join(os.homedir(), '.config', 'opencode', 'opencode.json');
 const GEMINI_CONFIG = path.join(os.homedir(), '.gemini', 'settings.json');
-const CODEX_CONFIG = path.join(os.homedir(), '.codex', 'config.toml');
 
 const CURRENT_VERSION = 1;
-const AGENTS = ['claudeCode', 'codex', 'gemini', 'opencode'];
+const AGENTS = ['claudeCode', 'gemini', 'opencode'];
 
 // Aliases for AGENT4LIVE_AUTO_REGISTER env var: short forms map to internal keys.
 const ENV_ALIAS = {
   claude: 'claudeCode',
   claudecode: 'claudeCode',
-  codex: 'codex',
   gemini: 'gemini',
   opencode: 'opencode',
 };
@@ -138,10 +131,7 @@ function isFirstBoot(prefs) {
  * carrying our SERVER_NAME. Returns a map of agents that already had us
  * registered — those will be auto-consented at boot, no modal needed.
  *
- * Only Claude + OpenCode are scanned (flat JSON configs). Codex/Gemini store
- * their MCP entries in formats we'd need to shell out to read.
- *
- * @returns {{ claudeCode?: boolean, opencode?: boolean }}
+ * @returns {{ claudeCode?: boolean, opencode?: boolean, gemini?: boolean }}
  */
 function migrateFromExistingConfigs() {
   const result = {};
@@ -172,16 +162,6 @@ function migrateFromExistingConfigs() {
       const entry = cfg && cfg.mcpServers && cfg.mcpServers[SERVER_NAME];
       if (entry && typeof entry.httpUrl === 'string' && _isLocalhostUrl(entry.httpUrl)) {
         result.gemini = true;
-      }
-    } catch (_) {}
-  }
-
-  if (fs.existsSync(CODEX_CONFIG)) {
-    try {
-      const toml = fs.readFileSync(CODEX_CONFIG, 'utf8');
-      const url = _extractCodexUrl(toml, SERVER_NAME);
-      if (url && _isLocalhostUrl(url)) {
-        result.codex = true;
       }
     } catch (_) {}
   }
@@ -223,35 +203,6 @@ function _isLocalhostUrl(url) {
   return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/.*)?$/.test(url);
 }
 
-/**
- * Extract the `url = "..."` value from a `[mcp_servers.<serverName>]` section
- * of a Codex config.toml. Stateful line scan: tracks the current section
- * header, returns the first `url` line inside the matching section, returns
- * null if the section is absent or has no url. No external TOML parser to
- * keep the .amxd freeze zero-dep.
- *
- * @param {string} toml - Raw config.toml content.
- * @param {string} serverName - Section key to match (after `mcp_servers.`).
- * @returns {string|null}
- */
-function _extractCodexUrl(toml, serverName) {
-  const target = `[mcp_servers.${serverName}]`;
-  let inSection = false;
-  for (const rawLine of toml.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (line === '' || line.startsWith('#')) continue;
-    if (line.startsWith('[') && line.endsWith(']')) {
-      inSection = line === target;
-      continue;
-    }
-    if (inSection) {
-      const m = line.match(/^url\s*=\s*"([^"]+)"/);
-      if (m) return m[1];
-    }
-  }
-  return null;
-}
-
 module.exports = {
   PREFERENCES_FILE,
   PREFERENCES_DIR,
@@ -265,5 +216,4 @@ module.exports = {
   migrateFromExistingConfigs,
   applyAutoRegisterEnv,
   _isLocalhostUrl,
-  _extractCodexUrl,
 };

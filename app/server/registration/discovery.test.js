@@ -16,7 +16,6 @@ jest.mock('../ui/state', () => ({
   uiState: {
     agents: {
       claudeCode: { detected: false, registered: false },
-      codex: { detected: false, registered: false },
       gemini: { detected: false, registered: false },
       opencode: { detected: false, registered: false },
     },
@@ -61,7 +60,6 @@ function mockBinFoundFor(...binNames) {
 const ALL_CONSENTED = {
   agents: {
     claudeCode: { consented: true, consented_at: 'x', url_at_consent: 'x' },
-    codex: { consented: true, consented_at: 'x', url_at_consent: 'x' },
     gemini: { consented: true, consented_at: 'x', url_at_consent: 'x' },
     opencode: { consented: true, consented_at: 'x', url_at_consent: 'x' },
   },
@@ -113,17 +111,16 @@ describe('detectClaude', () => {
 });
 
 describe('detectAgents', () => {
-  it('marks all 4 agents detected when their binaries exist', () => {
+  it('marks all 3 agents detected when their binaries exist', () => {
     mockBinFound();
     discovery.detectAgents();
     expect(uiState.agents.claudeCode.detected).toBe(true);
-    expect(uiState.agents.codex.detected).toBe(true);
     expect(uiState.agents.gemini.detected).toBe(true);
     expect(uiState.agents.opencode.detected).toBe(true);
   });
 
   it('only marks agents whose binary actually resolves', () => {
-    // Only `claude` is on disk ; codex/gemini/opencode all fail.
+    // Only `claude` is on disk ; gemini/opencode all fail.
     fs.accessSync.mockImplementation((p) => {
       if (typeof p === 'string' && p.endsWith('/claude')) return;
       const err = new Error('ENOENT');
@@ -135,7 +132,6 @@ describe('detectAgents', () => {
     });
     discovery.detectAgents();
     expect(uiState.agents.claudeCode.detected).toBe(true);
-    expect(uiState.agents.codex.detected).toBe(false);
     expect(uiState.agents.gemini.detected).toBe(false);
     expect(uiState.agents.opencode.detected).toBe(false);
   });
@@ -397,12 +393,11 @@ describe('teardownDiscovery + unregister*', () => {
     await discovery.teardownDiscovery();
     expect(fs.unlinkSync).toHaveBeenCalledWith(ENDPOINT_FILE);
     expect(uiState.agents.claudeCode.registered).toBe(false);
-    expect(uiState.agents.codex.registered).toBe(false);
     expect(uiState.agents.gemini.registered).toBe(false);
     expect(uiState.agents.opencode.registered).toBe(false);
   });
 
-  it('skips Claude/Codex/Gemini unregister when binary not found', async () => {
+  it('skips Claude/Gemini unregister when binary not found', async () => {
     cp.execFileSync.mockImplementation(() => {
       throw new Error('not found');
     });
@@ -425,9 +420,6 @@ describe('teardownDiscovery + unregister*', () => {
     await discovery.teardownDiscovery();
     expect(log).toHaveBeenCalledWith(
       expect.stringContaining('claude unregister failed (best-effort): subprocess failed'),
-    );
-    expect(log).toHaveBeenCalledWith(
-      expect.stringContaining('codex unregister failed (best-effort): subprocess failed'),
     );
     expect(log).toHaveBeenCalledWith(
       expect.stringContaining('gemini unregister failed (best-effort): subprocess failed'),
@@ -494,7 +486,7 @@ describe('setupConsentedClients gate', () => {
     });
     fs.existsSync.mockReturnValue(false);
     await discovery.setupConsentedClients(
-      { agents: { claudeCode: { consented: false }, codex: { consented: false } } },
+      { agents: { claudeCode: { consented: false }, gemini: { consented: false } } },
       'http://x/mcp',
       'tok',
     );
@@ -540,14 +532,6 @@ describe('registerOne dispatch', () => {
     await expect(discovery.registerOne('opencode', 'http://x/mcp', 'tok')).resolves.toBeUndefined();
   });
 
-  it('codex → registerCodex with timeout wrap; rejection caught', async () => {
-    fs.existsSync.mockReturnValue(false);
-    cp.execFileSync.mockImplementation(() => {
-      throw new Error('not found');
-    });
-    await expect(discovery.registerOne('codex', 'http://x/mcp', 'tok')).resolves.toBeUndefined();
-  });
-
   it('gemini → registerGemini with timeout wrap; rejection caught', async () => {
     fs.existsSync.mockReturnValue(false);
     cp.execFileSync.mockImplementation(() => {
@@ -558,22 +542,6 @@ describe('registerOne dispatch', () => {
 
   it('throws on unknown agent', () => {
     expect(() => discovery.registerOne('evil', 'x', 'y')).toThrow(/unknown agent/);
-  });
-
-  it('codex timeout → catch logs, promise still resolves', async () => {
-    jest.useFakeTimers();
-    try {
-      fs.existsSync.mockReturnValue(false);
-      mockBinFoundFor('codex');
-      cp.execFile.mockImplementation(() => {});
-      const p = discovery.registerOne('codex', 'http://x/mcp', 'tok');
-      jest.advanceTimersByTime(11000);
-      await expect(p).resolves.toBeUndefined();
-      expect(log).toHaveBeenCalledWith(expect.stringContaining('codex registration error'));
-    } finally {
-      jest.clearAllTimers();
-      jest.useRealTimers();
-    }
   });
 
   it('gemini timeout → catch logs, promise still resolves', async () => {
@@ -603,10 +571,6 @@ describe('unregisterOne dispatch', () => {
 
   it('claudeCode → unregisterFromClaude', async () => {
     await expect(discovery.unregisterOne('claudeCode')).resolves.toBeUndefined();
-  });
-
-  it('codex → unregisterCodex', async () => {
-    await expect(discovery.unregisterOne('codex')).resolves.toBeUndefined();
   });
 
   it('gemini → unregisterGemini', async () => {
@@ -646,7 +610,7 @@ describe('installSkill / uninstallSkill', () => {
     expect(encoding).toBe('utf8');
   });
 
-  it.each(['codex', 'gemini', 'opencode'])(
+  it.each(['gemini', 'opencode'])(
     'installSkill("%s") is a silent no-op (no fs writes)',
     (agent) => {
       discovery.installSkill(agent);
@@ -669,7 +633,7 @@ describe('installSkill / uninstallSkill', () => {
     expect(fs.rmdirSync).toHaveBeenCalledWith(SKILL_DIR);
   });
 
-  it.each(['codex', 'gemini', 'opencode'])('uninstallSkill("%s") is a silent no-op', (agent) => {
+  it.each(['gemini', 'opencode'])('uninstallSkill("%s") is a silent no-op', (agent) => {
     discovery.uninstallSkill(agent);
     expect(fs.unlinkSync).not.toHaveBeenCalled();
     expect(fs.rmdirSync).not.toHaveBeenCalled();
@@ -797,7 +761,7 @@ describe('setupConsentedClients + register*', () => {
   });
 });
 
-describe('registerCodex / registerGemini', () => {
+describe('registerGemini', () => {
   beforeEach(() => {
     fs.existsSync.mockReturnValue(false);
   });
@@ -806,57 +770,13 @@ describe('registerCodex / registerGemini', () => {
     mockBinFoundFor(target);
   }
 
-  it('codex: no-op when bin missing — logs "codex not found"', async () => {
+  it('gemini: no-op when bin missing — logs "gemini not found"', async () => {
     cp.execFileSync.mockImplementation(() => {
       throw new Error('not found');
     });
     await discovery.setupConsentedClients(ALL_CONSENTED, 'http://x/mcp', 'tok');
     await new Promise((r) => setImmediate(r));
-    expect(log).toHaveBeenCalledWith('codex not found');
     expect(log).toHaveBeenCalledWith('gemini not found');
-  });
-
-  it('codex: keeps existing entry when "mcp list" includes SERVER_NAME', async () => {
-    execFileBin('codex');
-    cp.execFile.mockImplementation((bin, args, opts, cb) => {
-      cb(null, 'agent4live-ableton  http://...', '');
-    });
-    await discovery.setupConsentedClients(ALL_CONSENTED, 'http://x/mcp', 'tok');
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    expect(uiState.agents.codex.registered).toBe(true);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('codex: already registered'));
-  });
-
-  it('codex: list throws then add succeeds → registered', async () => {
-    execFileBin('codex');
-    let call = 0;
-    cp.execFile.mockImplementation((bin, args, opts, cb) => {
-      call++;
-      if (call === 1) cb(new Error('list failed'), '', '');
-      else cb(null, '', '');
-    });
-    await discovery.setupConsentedClients(ALL_CONSENTED, 'http://x/mcp', 'tok');
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    expect(uiState.agents.codex.registered).toBe(true);
-    expect(log).toHaveBeenCalledWith('codex: registered (with auth)');
-  });
-
-  it('codex: add throws → logs manual fallback', async () => {
-    execFileBin('codex');
-    let call = 0;
-    cp.execFile.mockImplementation((bin, args, opts, cb) => {
-      call++;
-      if (call === 1) cb(null, 'no entry', '');
-      else cb(new Error('add boom'), '', '');
-    });
-    await discovery.setupConsentedClients(ALL_CONSENTED, 'http://x/mcp', 'tok');
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('codex mcp add failed'));
   });
 
   it('gemini: list contains SERVER_NAME → already registered', async () => {
@@ -1043,7 +963,7 @@ describe('resolveBin shell fallback', () => {
   });
 });
 
-describe('withRegistrationTimeout (via slow registerCodex)', () => {
+describe('withRegistrationTimeout (via slow registerGemini)', () => {
   beforeEach(() => {
     fs.existsSync.mockReturnValue(false);
     jest.useFakeTimers();
@@ -1052,22 +972,6 @@ describe('withRegistrationTimeout (via slow registerCodex)', () => {
   afterEach(() => {
     jest.clearAllTimers();
     jest.useRealTimers();
-  });
-
-  it('rejects with timeout when registration hangs longer than budget (codex)', async () => {
-    mockBinFoundFor('codex');
-    cp.execFile.mockImplementation(() => {});
-    discovery.setupConsentedClients(ALL_CONSENTED, 'http://x/mcp', 'tok');
-    jest.advanceTimersByTime(11000);
-    // Drain microtasks: race + .finally + .catch each add a microtask hop.
-    for (let i = 0; i < 6; i++) await Promise.resolve();
-    // Run any remaining fake timers (clearTimeout in finally is queued as a
-    // microtask that the fake clock processes lazily).
-    jest.runOnlyPendingTimers();
-    for (let i = 0; i < 4; i++) await Promise.resolve();
-    expect(log).toHaveBeenCalledWith(
-      expect.stringContaining('codex registration error: codex registration timed out after 10s'),
-    );
   });
 
   it('rejects with timeout when registration hangs longer than budget (gemini)', async () => {

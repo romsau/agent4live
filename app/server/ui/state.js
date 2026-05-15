@@ -71,7 +71,6 @@ const uiState = {
   agents: {
     claudeCode: { detected: false, registered: false },
     opencode: { detected: false, registered: false },
-    codex: { detected: false, registered: false },
     gemini: { detected: false, registered: false },
   },
   // null = the device just booted and updateExtensionStatus() hasn't returned

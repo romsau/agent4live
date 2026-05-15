@@ -7,14 +7,12 @@
 const allRedAgents = {
   claudeCode: { detected: false, registered: false },
   opencode: { detected: false, registered: false },
-  codex: { detected: false, registered: false },
   gemini: { detected: false, registered: false },
 };
 
 const allGreenAgents = {
   claudeCode: { detected: true, registered: true },
   opencode: { detected: true, registered: true },
-  codex: { detected: true, registered: true },
   gemini: { detected: true, registered: true },
 };
 
@@ -24,15 +22,13 @@ const allGreenAgents = {
 const claudeConsented = {
   claudeCode: { detected: true, registered: true, consented: true },
   opencode: { detected: true, registered: false, consented: false },
-  codex: { detected: true, registered: false, consented: false },
   gemini: { detected: true, registered: false, consented: false },
 };
 
-// Used to preview the consent modal (4 detected agents, none consented yet).
+// Used to preview the consent modal (3 detected agents, none consented yet).
 const allDetectedNotConsented = {
   claudeCode: { detected: true, registered: false, consented: false },
   opencode: { detected: true, registered: false, consented: false },
-  codex: { detected: true, registered: false, consented: false },
   gemini: { detected: true, registered: false, consented: false },
 };
 
@@ -156,7 +152,7 @@ module.exports = {
     extensionStatus: extensionReady,
   },
 
-  // Welcome modal — first boot, no consent yet, three of four agents detected.
+  // Welcome modal — first boot, no consent yet, two of three agents detected.
   'consent-modal-mixed': {
     mode: 'active',
     activePeer: null,
@@ -167,7 +163,6 @@ module.exports = {
     logs: [],
     agents: {
       claudeCode: { detected: true, registered: false, consented: false },
-      codex: { detected: true, registered: false, consented: false },
       gemini: { detected: false, registered: false, consented: false },
       opencode: { detected: true, registered: false, consented: false },
     },
@@ -175,7 +170,7 @@ module.exports = {
     extensionStatus: extensionReady,
   },
 
-  // All four agents detected → modal lets the user pick any subset.
+  // All three agents detected → modal lets the user pick any subset.
   'consent-modal-all-detected': {
     mode: 'active',
     activePeer: null,
