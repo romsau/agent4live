@@ -8,8 +8,6 @@ The device auto-registers itself in your agent's MCP config the first time you d
 
 **Website:** [agent4live-7cfed.web.app](https://agent4live-7cfed.web.app/)
 
-<a href="https://buymeacoffee.com/romainsauvez" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="41" width="174"></a>
-
 ---
 
 ## Features
