@@ -6,6 +6,16 @@ Problèmes courants et leurs causes/solutions. Pour le contexte d'architecture, 
 
 **Erreur 6 au chargement du device** : le header binaire du `.amxd` est désynchronisé. Ouvrir le device dans Max et faire `Cmd+S` pour le réécrire proprement.
 
+**Coincé sur Modal B "Activate the script in Live" et agent4live n'apparaît pas dans le dropdown Control Surfaces** : Live n'a pas trouvé le script à l'endroit où on l'a écrit. Cause typique : le User Library d'Ableton est customisé (Settings > Library > Library Locations > User Library) — par exemple sur un disque externe. Le device lit maintenant `~/Library/Preferences/Ableton/Live X.Y/Library.cfg` pour découvrir le vrai path à chaque boot, mais si le scan échoue (Library.cfg malformé, volume non monté, etc.) on retombe sur `~/Music/Ableton/User Library/Remote Scripts/`. Diagnostic :
+
+```bash
+cat ~/Library/Preferences/Ableton/Live\ 12.4/Library.cfg | head -10
+# Cherche le <ProjectPath Value="..."/> dans <UserLibrary>.
+# Live va scanner <ProjectPath>/User Library/Remote Scripts/.
+```
+
+Si le device a écrit ailleurs (par exemple parce que le volume du User Library était démonté au moment du Modal A "Install"), forcer une réinstall : Quit Live → `rm -rf "<ProjectPath réel>/User Library/Remote Scripts/agent4live"` → relancer Live → re-drop device → Modal A "Install" → Cmd+Q + relaunch Live.
+
 **`dist/agent4live.amxd` affiche un fond blanc / jweb vide** : le frozen device est probablement obsolète. Refaire le workflow de build : `npm run build` puis re-Freeze depuis `dist/staging/agent4live.amxd` (voir `ARCHITECTURE.md` → _Générer le fichier de distribution_).
 
 **Port EADDRINUSE** : soit une autre instance d'agent4live tient déjà le port (cas normal du multi-device — la 2e instance passe en mode passif et affiche la card "Duplicate device"), soit un process Node zombie d'une session précédente. Identifier le PID :
