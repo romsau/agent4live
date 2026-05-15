@@ -1,0 +1,27 @@
+[project]
+name = "agent4live-proto"
+version = "0.0.1"
+description = "Throwaway prototype — HTTP MCP server inside Live's Python Remote Script process."
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=1.0.0",
+  "httpx>=0.27.0",
+  "numpy>=1.26.0",
+  "scipy>=1.13.0",
+  "uvicorn>=0.30.0",
+  "starlette>=0.37.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+]
+
+[tool.setuptools.packages.find]
+where = ["remote_script"]
+include = ["agent4live_proto*"]
+
+[tool.pytest.ini_options]
+testpaths = ["load_test/tests", "remote_script/agent4live_proto"]
+asyncio_mode = "auto"
