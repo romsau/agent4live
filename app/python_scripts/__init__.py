@@ -14,30 +14,33 @@ After install, open Live → Preferences → Link/Tempo/MIDI → assign
 
 Threading model
 ---------------
-Live's API must only be touched on the main UI thread. We follow the
-AbletonOSC pattern (5 years in production, NIME 2023): the listening
-socket is non-blocking and lives on the main thread, polled via
-`schedule_message(1, self._tick)` which re-arms itself every ~100 ms.
-`_tick` accepts new clients non-blockingly, drains any pending data,
-dispatches inline, writes the response and closes the connection — all
-on the main thread, with zero background threads. This eliminates the
-cross-thread synchronization overhead of the previous queue+Event design.
-
-Reference: github.com/ideoforms/AbletonOSC/blob/master/manager.py `tick()`.
+Live's API must only be touched on the main UI thread. The TCP listener
+runs on a background thread, so we never call browser.load_item directly
+from there — it crashes Live. Instead, requests go through a thread-safe
+queue and are drained by the framework's `update_display()` callback,
+which Live invokes on the main thread (~30 Hz). The TCP thread blocks on
+a per-request `Event` until the main thread fills in the result.
 """
 
 from __future__ import absolute_import, print_function, unicode_literals
 
 import json
 import socket
+import threading
 import traceback
+
+try:
+    # Python 3.x stdlib
+    import queue
+except ImportError:  # pragma: no cover (Live 11+ is always Python 3)
+    import Queue as queue
 
 from _Framework.ControlSurface import ControlSurface
 
 
 HOST = "127.0.0.1"
 PORT = 54321
-PROTOCOL_VERSION = 6  # bumped from 5 : AbletonOSC main-thread tick pattern (no background threads)
+PROTOCOL_VERSION = 5  # bumped from 4 : adds send_midi method (receive deferred)
 
 # Top-level Browser roots, in the order Live's UI presents them.
 BROWSER_ROOTS = (
@@ -56,32 +59,30 @@ BROWSER_ROOTS = (
 BROWSER_DEPTH_CAP = 15  # safety: stops runaway DFS in pack trees
 SEARCH_DEFAULT_LIMIT = 50
 
+# Per-request budgets. The TCP thread waits this long for the main thread to
+# return a result before erroring out.
+MAIN_THREAD_TIMEOUT_S = 30.0
+DRAIN_BATCH_SIZE = 4  # how many queued messages to process per update_display tick
+
 
 
 class Agent4LiveCompanion(ControlSurface):
-    """Remote Script that exposes a JSON-over-TCP control channel, polled
-    on Live's main thread via schedule_message (AbletonOSC pattern). All
-    Live API calls happen inline in `_tick`, so they are always on the
-    main UI thread by construction.
+    """Remote Script that exposes a JSON-over-TCP control channel, with all
+    Live API calls marshalled onto the main thread for safety.
     """
 
     def __init__(self, c_instance):
         super(Agent4LiveCompanion, self).__init__(c_instance)
+        self._stop = threading.Event()
         self._server = None
-        # Per-connection state : list of {"sock": <socket>, "buf": b""}.
-        # Each connection is short-lived (one JSON line, one response, close).
-        self._connections = []
+        self._server_thread = None
+        # Background TCP threads put (message, slot) tuples here ; main thread
+        # drains them in update_display(). slot = {'event', 'result'}.
+        self._main_queue = queue.Queue()
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind((HOST, PORT))
-            s.listen(5)
-            s.setblocking(0)
-            self._server = s
-            # Kick off the main-thread polling loop. _tick will re-arm itself.
-            self.schedule_message(1, self._tick)
+            self._start_listener()
             self.log_message(
-                "agent4live companion v%d started on %s:%d (main-thread tick)"
+                "agent4live companion v%d started on %s:%d (queued main-thread dispatch)"
                 % (PROTOCOL_VERSION, HOST, PORT)
             )
         except Exception:
@@ -90,118 +91,104 @@ class Agent4LiveCompanion(ControlSurface):
     # ── Lifecycle ───────────────────────────────────────────────────────────
 
     def disconnect(self):
-        """Called by Live when the script is unloaded (or Live quits).
-
-        Close any pending client sockets first, then the server socket.
-        Without this, orphan sockets block reload on the same port.
-        """
-        for conn in self._connections:
-            try:
-                conn["sock"].close()
-            except Exception:
-                pass
-        self._connections = []
-        if self._server is not None:
-            try:
-                self._server.close()
-            except Exception:
-                pass
-            self._server = None
+        """Called by Live when the script is unloaded (or Live quits)."""
+        self._stop.set()
+        try:
+            self._server.close()
+        except Exception:
+            pass
         super(Agent4LiveCompanion, self).disconnect()
 
-    # ── Main-thread polling tick (AbletonOSC pattern) ──────────────────────
+    # ── Main-thread dispatch (called by Live ~30 Hz on the UI thread) ──────
 
-    def _tick(self):
-        """Polled by Live's scheduler every ~100 ms on the main thread.
-
-        1. Drain new accepts (non-blocking) until BlockingIOError.
-        2. For each connection, try a non-blocking recv ; on a complete JSON
-           line, dispatch + respond + close ; on EOF/error, drop.
-        3. Always re-arm at the end, even on unexpected exception.
-        """
-        try:
-            # 1. Accept any pending connections.
-            if self._server is not None:
-                while True:
-                    try:
-                        client, _addr = self._server.accept()
-                        client.setblocking(0)
-                        self._connections.append({"sock": client, "buf": b""})
-                    except BlockingIOError:
-                        break
-                    except Exception:
-                        # Don't let a bad accept crash the tick.
-                        self.log_message(
-                            "agent4live accept error:\n" + traceback.format_exc()
-                        )
-                        break
-
-            # 2. Service existing connections.
-            still_open = []
-            for conn in self._connections:
-                sock = conn["sock"]
-                drop = False
-                try:
-                    while True:
-                        try:
-                            chunk = sock.recv(4096)
-                        except BlockingIOError:
-                            break
-                        except Exception:
-                            drop = True
-                            break
-                        if not chunk:
-                            # EOF before a full line — drop.
-                            drop = True
-                            break
-                        conn["buf"] += chunk
-                        if b"\n" in conn["buf"]:
-                            break
-
-                    if not drop and b"\n" in conn["buf"]:
-                        line = conn["buf"].split(b"\n", 1)[0]
-                        try:
-                            msg = json.loads(line.decode("utf-8"))
-                        except Exception as e:
-                            response = {"ok": False, "error": "bad JSON: " + str(e)}
-                        else:
-                            try:
-                                response = self._dispatch(msg)
-                            except Exception as e:
-                                response = {
-                                    "ok": False,
-                                    "error": str(e),
-                                    "trace": traceback.format_exc(),
-                                }
-                        try:
-                            sock.sendall((json.dumps(response) + "\n").encode("utf-8"))
-                        except Exception:
-                            pass
-                        drop = True
-                except Exception:
-                    try:
-                        self.log_message(
-                            "agent4live client error:\n" + traceback.format_exc()
-                        )
-                    except Exception:
-                        pass
-                    drop = True
-
-                if drop:
-                    try:
-                        sock.close()
-                    except Exception:
-                        pass
-                else:
-                    still_open.append(conn)
-            self._connections = still_open
-        finally:
-            # Always re-arm, even on unexpected exception. Without this,
-            # the script silently goes dead after the first hiccup.
+    def update_display(self):
+        super(Agent4LiveCompanion, self).update_display()
+        for _ in range(DRAIN_BATCH_SIZE):
             try:
-                self.schedule_message(1, self._tick)
+                msg, slot = self._main_queue.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                slot["result"] = self._dispatch(msg)
+            except Exception as e:
+                slot["result"] = {
+                    "ok": False,
+                    "error": str(e),
+                    "trace": traceback.format_exc(),
+                }
+            slot["event"].set()
+
+    # ── TCP listener (background thread) ────────────────────────────────────
+
+    def _start_listener(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((HOST, PORT))
+        s.listen(5)
+        s.settimeout(1.0)  # so the accept loop can periodically check _stop
+        self._server = s
+        t = threading.Thread(target=self._accept_loop, name="agent4live-companion-accept")
+        t.daemon = True
+        t.start()
+        self._server_thread = t
+
+    def _accept_loop(self):
+        while not self._stop.is_set():
+            try:
+                client, _addr = self._server.accept()
+            except socket.timeout:
+                continue
+            except Exception:
+                if not self._stop.is_set():
+                    self.log_message("agent4live accept error:\n" + traceback.format_exc())
+                return
+            # Spawn a per-client worker so the accept loop stays responsive.
+            t = threading.Thread(
+                target=self._handle_client, args=(client,), name="agent4live-client"
+            )
+            t.daemon = True
+            t.start()
+
+    def _handle_client(self, client):
+        try:
+            client.settimeout(5.0)
+            buf = b""
+            while b"\n" not in buf:
+                chunk = client.recv(4096)
+                if not chunk:
+                    return
+                buf += chunk
+            line = buf.split(b"\n", 1)[0]
+            try:
+                msg = json.loads(line.decode("utf-8"))
+            except Exception as e:
+                response = {"ok": False, "error": "bad JSON: " + str(e)}
+            else:
+                response = self._submit_to_main(msg)
+            client.sendall((json.dumps(response) + "\n").encode("utf-8"))
+        except Exception:
+            try:
+                self.log_message("agent4live client error:\n" + traceback.format_exc())
             except Exception:
                 pass
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    def _submit_to_main(self, msg):
+        """Hand `msg` off to the main thread and block until it produces a
+        result (or the budget expires).
+        """
+        slot = {"event": threading.Event(), "result": None}
+        self._main_queue.put((msg, slot))
+        if not slot["event"].wait(timeout=MAIN_THREAD_TIMEOUT_S):
+            return {
+                "ok": False,
+                "error": "main-thread dispatch timed out after %ss" % MAIN_THREAD_TIMEOUT_S,
+            }
+        return slot["result"]
 
     # ── Dispatch (main thread) ──────────────────────────────────────────────
 
