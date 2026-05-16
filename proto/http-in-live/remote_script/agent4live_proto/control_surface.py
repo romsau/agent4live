@@ -12,8 +12,16 @@ Boot sequence (inside __init__):
 
 from __future__ import absolute_import, print_function, unicode_literals
 
+import sys
 import time
 import traceback
+
+# R3 mitigation : force the GIL to switch threads every 1 ms instead of the
+# Python default (5 ms) — when measured in Live 12.4 the effective switch
+# interval was ~200 ms, suggesting Live's main thread holds the GIL in long
+# bursts. A tighter interval forces more frequent yields so our HTTP server
+# thread can actually run.
+sys.setswitchinterval(0.001)
 
 from _Framework.ControlSurface import ControlSurface
 
@@ -37,10 +45,14 @@ class _Diag:
 class Agent4LiveProto(ControlSurface):
     def __init__(self, c_instance):
         super(Agent4LiveProto, self).__init__(c_instance)
+        self._server = None
+        self._server_thread = None
         try:
             self._diag = _Diag()
             self._bridge = Bridge(main_thread_timeout_s=30.0)
-            self._server_thread = run_server_thread(self._bridge, self._diag, port=PORT)
+            self._server, self._server_thread = run_server_thread(
+                self._bridge, self._diag, port=PORT
+            )
             self.log_message(
                 "agent4live_proto v%d started on 127.0.0.1:%d (HTTP MCP)" % (PROTO_VERSION, PORT)
             )
@@ -48,8 +60,15 @@ class Agent4LiveProto(ControlSurface):
             self.log_message("agent4live_proto failed to start:\n" + traceback.format_exc())
 
     def disconnect(self):
-        # Server thread is daemon ; it dies with the Live process. We don't
-        # try to shutdown uvicorn cleanly because that requires async coord.
+        # Shut down the HTTP server so its port is released before Live
+        # reloads us (Remote Script slot toggle, Live restart, etc.).
+        # Without this the next instance fails with "Address already in use".
+        if self._server is not None:
+            try:
+                self._server.shutdown()
+                self._server.server_close()
+            except Exception:
+                self.log_message("agent4live_proto shutdown error:\n" + traceback.format_exc())
         super(Agent4LiveProto, self).disconnect()
 
     def update_display(self):

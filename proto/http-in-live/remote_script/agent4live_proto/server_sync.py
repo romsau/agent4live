@@ -25,12 +25,15 @@ PROTOCOL_VERSION = "2024-11-05"
 
 def run_server_thread(bridge, diag, port=19846):
     handler_cls = _make_handler(bridge, diag)
+    # Set allow_reuse_address BEFORE binding (it's a class attribute). Live
+    # may reload the Remote Script before the old thread has fully released
+    # the socket — SO_REUSEADDR lets us re-bind anyway.
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
     server = socketserver.ThreadingTCPServer(("127.0.0.1", port), handler_cls)
-    server.allow_reuse_address = True
     t = threading.Thread(target=server.serve_forever, name="agent4live-proto-server-sync",
                          daemon=True)
     t.start()
-    return t
+    return server, t
 
 
 def _make_handler(bridge, diag):
