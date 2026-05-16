@@ -9,9 +9,9 @@
 
 ## Verdict : **NO** (pour la migration telle que spécifiée) — **MIDDLE** (pour une migration repensée autour de tools composites)
 
-L'architecture _est_ techniquement viable — on a un serveur MCP HTTP qui tourne dans le process de Live et qui répond à Claude Code. Mais le bénéfice perf central promis par la roadmap (« 3-5× plus rapide que le pont JS↔Max actuel, 10-15 ms → 2-4 ms ») est **impossible** : un Remote Script Python a un plancher de latence structurel de **200-900 ms par call**, mesuré et reproduit sur deux extensions distinctes. La migration en l'état serait une **régression perf**, pas une amélioration.
+L'architecture _est_ techniquement viable — on a un serveur MCP HTTP qui tourne dans le process de Live et qui répond à Claude Code. Mais le bénéfice perf central promis par la roadmap (« 3-5× plus rapide que le pont JS↔Max actuel, 10-15 ms → 2-4 ms ») est **impossible** : la plateforme Live Python a un plancher de tick main-thread de **~100 ms** structurel.
 
-Le proto a toutefois extrait deux apprentissages structurants pour la roadmap (voir « Recommandation » plus bas).
+**⚠️ Correction post-recherche (voir « Mise à jour — patterns de référence » plus bas) :** notre mesure de 500-600 ms n'est PAS le plancher plateforme — c'est le plancher de **notre pattern** (socket thread + queue + drain `update_display`), partagé par notre prod `agent4live` et par `Ziforge/ableton-liveapi-tools` qui font la même chose. AbletonOSC (5 ans de production, paper NIME 2023) atteint **~100 ms** en abandonnant le thread serveur et en faisant tout sur le main thread via `schedule_message(1, tick)`. Le verdict NO tient (100 ms reste 6-10× plus lent que le pont JS↔Max actuel), mais l'écart est plus serré que mesuré, et notre prod extension pourrait être 6× plus rapide en refactorant.
 
 ---
 
@@ -216,6 +216,73 @@ Au-delà des 3 points ci-dessus, le proto fournit un squelette de référence :
 - `mcp_handshake.py` (utilitaire client réutilisable)
 
 Tests unitaires : 20 tests pytest passent, couverture des modules pure-Python (bridge, lom_exec, tools, synthetic, detect_dropouts).
+
+---
+
+## Mise à jour — patterns de référence dans l'écosystème (2026-05-16, post-cleanup)
+
+Recherche faite après cleanup du proto pour valider si notre 500-600 ms est inévitable ou si on a juste choisi le mauvais pattern. **Conclusion : on a choisi le mauvais pattern.**
+
+### Plancher réel de la plateforme : ~100 ms
+
+Confirmé multi-sources : `schedule_message`, `add_current_song_time_listener`, `update_display()` tournent tous autour de **100 ms** (60 ms pour le listener `current_song_time` dans certaines conditions, mais 100 ms en pratique reproduisable). C'est le tick le plus rapide qu'un Remote Script Python peut obtenir.
+
+### Comparaison avec les projets de référence
+
+| Projet                                | Archi                        | Transport                 | Pattern threading                                                             | Latence effective                                              |
+| ------------------------------------- | ---------------------------- | ------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **AbletonOSC** (NIME 2023, 5+ années) | Single-process Remote Script | UDP `:11000` non-bloquant | **Aucun thread serveur** — `schedule_message(1, self.tick)` toutes les 100 ms | **~100 ms** (floor plateforme atteint)                         |
+| **ableton-osc-mcp** (Go)              | Process séparé               | MCP stdio ↔ OSC UDP       | Dépend d'AbletonOSC                                                           | ~100-150 ms (floor + traduction)                               |
+| **Ziforge/ableton-liveapi-tools**     | Single-process Remote Script | TCP `:9004` JSON          | Socket thread + queue + `update_display()` drain — **idem notre design**      | Claim « low latency », **pas de benchmark** (probable ~500 ms) |
+| **Notre prod `agent4live`**           | Single-process Remote Script | TCP `:54321` JSON         | Idem Ziforge / Idem notre proto                                               | **600 ms p50 mesuré**                                          |
+| **Notre proto (Fallback A)**          | Single-process Remote Script | HTTP `:19846` JSON-RPC    | Idem                                                                          | **500 ms p50 mesuré**                                          |
+
+### La différence clé : où vit la boucle d'I/O
+
+Notre design (et celui de Ziforge, et celui de notre prod) :
+
+- Un **thread serveur background** fait `serve_forever()` sur un socket bloquant
+- Quand une requête arrive, le thread la lit, la met en queue, **attend** un event signalé par le main thread (via `update_display`)
+- Le main thread drain la queue et signale l'event
+
+Conséquence : 4 transitions GIL par call (thread reçoit, main drain, thread écrit réponse). Chaque transition pèse ~100 ms parce que le main thread Live tient le GIL en bursts longs.
+
+AbletonOSC :
+
+- **Pas de thread serveur du tout**
+- Le main thread, sur chaque tick de `schedule_message(1, callback)`, **poll le socket UDP non-bloquant**
+- Si data dispo : lire, traiter, écrire — tout en une fois sur le main thread
+- Pas de queue, pas d'event, pas de cross-thread synchronisation
+
+Conséquence : 1 traversée GIL par call (le main thread fait tout dans sa fenêtre Python).
+
+Le commentaire littéral dans le code d'AbletonOSC, qui décrit exactement notre découverte :
+
+> _"Live's embedded Python implementation does not appear to support threading, and beachballs when a thread is started."_
+
+Ils ont rencontré le problème 5 ans avant nous et conçu autour. **Notre prod, le proto, et Ziforge ont tous reproduit l'anti-pattern.**
+
+### Implications corrigées
+
+1. **Notre prod `agent4live` est sous-optimal de 5-6×.** Un refactor vers le pattern AbletonOSC (abandon du socket thread, polling UDP/TCP sur le main thread via `schedule_message`) descendrait sa latence p50 de 600 ms à ~100 ms. C'est un chantier de quelques jours, indépendant de toute migration.
+
+2. **Le verdict NO sur la migration tient toujours**, mais avec une nuance plus précise :
+   - Plancher Python Remote Script atteignable = **100 ms** (pas 500 ms comme mesuré)
+   - Pont JS↔Max actuel = **10-15 ms**
+   - Écart réel = **6-10×**, pas 50×
+   - La migration reste perdante, mais le gap est plus serré
+
+3. **Alternative directement opérationnelle** : `nozomi-koborinai/ableton-osc-mcp` existe et fait déjà exactement ce qu'on voulait construire — un serveur MCP qui pilote Live via AbletonOSC. Pas besoin de migrer notre stack ; il suffirait que l'utilisateur installe AbletonOSC + ableton-osc-mcp à côté du device prod. Bénéfice : moins de code à entretenir chez nous, projet déjà battle-tested. Coût : nos 232 outils LOM customs ne sont pas exposés (l'API AbletonOSC est plus restreinte).
+
+4. **Si on garde notre stack mais qu'on veut accélérer le prod extension** : adopter le pattern AbletonOSC (`schedule_message` polling + pas de socket thread). Le pattern existe en référence dans le tag `proto-archive-2026-05-16` pour le **mauvais** pattern (à éviter) ; AbletonOSC ([github.com/ideoforms/AbletonOSC](https://github.com/ideoforms/AbletonOSC), fichier `manager.py`, fonction `tick()`) est la référence pour le **bon** pattern.
+
+### Sources
+
+- [GitHub — ideoforms/AbletonOSC](https://github.com/ideoforms/AbletonOSC) — pattern `schedule_message(1, self.tick)`, fonction `tick()` dans `manager.py`.
+- [AbletonOSC NIME 2023 paper (Daniel Jones)](https://nime.org/proceedings/2023/nime2023_60.pdf) — design rationale, threading constraints.
+- [GitHub — Ziforge/ableton-liveapi-tools](https://github.com/Ziforge/ableton-liveapi-tools) — 220 outils LiveAPI, même anti-pattern threading que nous.
+- [GitHub — nozomi-koborinai/ableton-osc-mcp](https://github.com/nozomi-koborinai/ableton-osc-mcp) — serveur MCP externe Go, communication OSC/UDP avec AbletonOSC.
+- [Ableton Forum — fastest clock in Max/API](https://forum.ableton.com/viewtopic.php?t=152504) — discussion des limites timing.
 
 ---
 
