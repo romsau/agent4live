@@ -19,7 +19,7 @@ from _Framework.ControlSurface import ControlSurface
 
 from .bridge import Bridge
 from .lom_exec import execute
-from .server import run_server_thread
+from .server_sync import run_server_thread
 
 
 DRAIN_BATCH_SIZE = 4   # messages per update_display tick (~30 Hz)
