@@ -20,6 +20,8 @@ from typing import Any, Dict, List
 
 import httpx
 
+from mcp_handshake import MCP_HEADERS as _MCP_HEADERS, ensure_mcp_session as _ensure_session
+
 
 def latency_summary(timings_ms: List[float]) -> Dict[str, float]:
     if not timings_ms:
@@ -43,50 +45,6 @@ def latency_summary(timings_ms: List[float]) -> Dict[str, float]:
         "p99_9_ms": pct(0.999),
         "mean_ms": statistics.fmean(timings_ms),
     }
-
-
-_MCP_HEADERS = {
-    "Content-Type": "application/json",
-    "Accept": "application/json, text/event-stream",
-}
-
-
-async def _ensure_session(client: httpx.AsyncClient, url: str) -> str:
-    """Do MCP Streamable HTTP handshake if not yet done. Returns session id.
-
-    The MCP Streamable HTTP transport requires:
-      1. POST `initialize` to capture Mcp-Session-Id response header.
-      2. POST `notifications/initialized` with that header.
-      3. All subsequent tools/call POSTs include Mcp-Session-Id.
-
-    We cache the session id on the client instance to handshake once.
-    """
-    sid = getattr(client, "_mcp_session_id", None)
-    if sid:
-        return sid
-    init_body = {
-        "jsonrpc": "2.0",
-        "id": "init",
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "synthetic", "version": "0.1"},
-        },
-    }
-    r = await client.post(url, json=init_body, headers=_MCP_HEADERS)
-    r.raise_for_status()
-    sid = r.headers.get("Mcp-Session-Id")
-    if not sid:
-        raise RuntimeError("Server did not return Mcp-Session-Id")
-    # Send the required notifications/initialized (no response expected)
-    await client.post(
-        url,
-        json={"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
-        headers={**_MCP_HEADERS, "Mcp-Session-Id": sid},
-    )
-    client._mcp_session_id = sid  # type: ignore[attr-defined]
-    return sid
 
 
 async def _call(client: httpx.AsyncClient, url: str, rpc_id: int, name: str, args: Dict[str, Any]) -> float:
