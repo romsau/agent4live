@@ -1,4 +1,4 @@
-"""agent4live companion — Remote Script bridging Live's Python API to the
+r"""agent4live companion — Remote Script bridging Live's Python API to the
 agent4live MCP device via a local TCP socket.
 
 The MCP device (Node-for-Max) runs a Max [js] LOM router for the bits that
@@ -6,8 +6,10 @@ ARE exposed to Max. Browser API isn't, so this companion picks up the slack:
 it listens on 127.0.0.1:54321 and forwards JSON commands to Live's Python
 API (Application.browser, Browser.load_item, etc).
 
-Install location:
-  ~/Music/Ableton/User Library/Remote Scripts/agent4live/
+Install location (the device reads the real one from Live's Library.cfg ;
+these are the stock locations):
+  macOS    ~/Music/Ableton/User Library/Remote Scripts/agent4live/
+  Windows  %USERPROFILE%\Documents\Ableton\User Library\Remote Scripts\agent4live\
 
 After install, open Live → Preferences → Link/Tempo/MIDI → assign
 "agent4live" in any Control Surface dropdown slot (Input/Output = None).
