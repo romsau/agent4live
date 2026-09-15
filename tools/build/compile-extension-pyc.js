@@ -4,8 +4,9 @@
 // Pre-build step: compile app/python_scripts/__init__.py to .pyc with
 // Python 3.11 (the version Live 12 embeds). The .pyc is then embedded into
 // the Node bundle by esbuild's `binary` loader so the user device can deploy
-// it to ~/Music/Ableton/User Library/Remote Scripts/agent4live/ without ever
-// asking the user to install python3.11.
+// it to the User Library Remote Scripts folder (see app/server/platform.js
+// for the per-OS location) without ever asking the user to install
+// python3.11.
 //
 // This script is a *dev-side* requirement (we need a python3.11 to produce
 // the .pyc). End users don't need anything Python-related — they just drop
@@ -15,38 +16,39 @@
 
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { execFileSync } = require('child_process');
+const { pythonCandidates, pythonInstallHint } = require('../../app/server/platform');
 
 const PY_SRC = path.resolve(__dirname, '..', '..', 'app', 'python_scripts', '__init__.py');
 const PYC_OUT = path.resolve(__dirname, '..', '..', 'app', 'python_scripts', '__init__.pyc');
 
-const PYTHON_311_CANDIDATES = [
-  path.join(os.homedir(), '.local', 'bin', 'python3.11'),
-  '/opt/homebrew/bin/python3.11',
-  '/usr/local/bin/python3.11',
-  'python3.11',
-];
+const PYTHON_VERSION = '3.11';
+const VERSION_TUPLE = `(${PYTHON_VERSION.split('.').join(', ')})`;
 
 /**
- * Probe candidate paths for a python3.11 binary. Throws with a clear message
- * if none are found — the build can't proceed without one.
+ * Probe for a CPython 3.11 interpreter. Returns it as a spawnable pair rather
+ * than a bare path so that Windows can go through the `py -3.11` launcher,
+ * which selects a version by argument — on Windows every install is named
+ * plain `python.exe`, so there is no versioned filename to probe for. Throws
+ * with a clear, platform-appropriate message when none is found: the build
+ * can't proceed without one.
  *
- * @returns {string} Absolute path to a python3.11 interpreter.
+ * @returns {{ file: string, prefixArgs: string[] }} A runnable interpreter.
  */
 function findPython311() {
-  for (const candidate of PYTHON_311_CANDIDATES) {
+  for (const candidate of pythonCandidates(PYTHON_VERSION)) {
     try {
-      const out = execFileSync(candidate, ['-c', 'import sys; print(sys.version_info[:2])'], {
-        encoding: 'utf8',
-        timeout: 3000,
-      });
-      if (out.includes('(3, 11)')) return candidate;
+      const out = execFileSync(
+        candidate.file,
+        [...candidate.prefixArgs, '-c', 'import sys; print(sys.version_info[:2])'],
+        { encoding: 'utf8', timeout: 3000 },
+      );
+      if (out.includes(VERSION_TUPLE)) return candidate;
     } catch (_) {}
   }
   throw new Error(
-    'python3.11 not found in any known location.\n' +
-      '  Install it (e.g. `brew install python@3.11`) and retry.\n' +
+    `python${PYTHON_VERSION} not found in any known location.\n` +
+      `  Install it (e.g. \`${pythonInstallHint(PYTHON_VERSION)}\`) and retry.\n` +
       '  This is a *dev-side* requirement — end users never need Python.',
   );
 }
@@ -61,8 +63,9 @@ function compile() {
   }
   const py = findPython311();
   execFileSync(
-    py,
+    py.file,
     [
+      ...py.prefixArgs,
       '-c',
       `import py_compile; py_compile.compile(${JSON.stringify(PY_SRC)}, cfile=${JSON.stringify(PYC_OUT)}, doraise=True)`,
     ],
