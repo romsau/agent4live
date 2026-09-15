@@ -28,7 +28,21 @@ const cp = require('child_process');
 const path = require('path');
 const os = require('os');
 const { uiState, log } = require('../ui/state');
+const { onPlatform } = require('../../../tools/test/with-platform');
 
+// The scenarios below describe a macOS machine (POSIX candidate paths, a
+// login-shell `command -v` fallback, an NVM layout), so the platform is
+// pinned for the file and the expected paths use the posix flavour — the
+// same one platform.js selects under that pin. Windows behaviour is a
+// separate block at the bottom. Before the pin, three of these failed on a
+// Windows checkout purely because path.join produced backslashes.
+onPlatform('darwin');
+
+// `P` is the flavour platform.js uses under the pin above, for the paths it
+// owns (bin candidates, NVM layout). ENDPOINT_FILE / OPENCODE_CONFIG are
+// OS-agnostic locations that discovery.js still builds with the ambient
+// `path`, so they keep using it.
+const P = path.posix;
 const HOME = os.homedir();
 const ENDPOINT_FILE = path.join(HOME, '.agent4live-ableton-mcp', 'endpoint.json');
 const OPENCODE_CONFIG = path.join(HOME, '.config', 'opencode', 'opencode.json');
@@ -828,8 +842,8 @@ describe('resolveBin NVM probing', () => {
   // list of dirs under ~/.nvm/versions/node, `binFoundIn` lists which of
   // those versions actually contains the requested bin under bin/<name>.
   function mockNvm({ defaultAlias = null, versions = [], binFoundIn = [] }, name = 'gemini') {
-    const NVM_ROOT = path.join(HOME, '.nvm', 'versions', 'node');
-    const ALIAS_FILE = path.join(HOME, '.nvm', 'alias', 'default');
+    const NVM_ROOT = P.join(HOME, '.nvm', 'versions', 'node');
+    const ALIAS_FILE = P.join(HOME, '.nvm', 'alias', 'default');
     fs.readFileSync.mockImplementation((p) => {
       if (p === ALIAS_FILE) {
         if (defaultAlias === null) {
@@ -846,7 +860,7 @@ describe('resolveBin NVM probing', () => {
       throw new Error(`unexpected readdirSync(${p})`);
     });
     fs.accessSync.mockImplementation((p) => {
-      const wantedSuffixes = binFoundIn.map((v) => path.join(NVM_ROOT, v, 'bin', name));
+      const wantedSuffixes = binFoundIn.map((v) => P.join(NVM_ROOT, v, 'bin', name));
       if (wantedSuffixes.includes(String(p))) return;
       const err = new Error('ENOENT');
       err.code = 'ENOENT';
@@ -1015,5 +1029,113 @@ describe('registerOpenCode preserves existing $schema and mcp keys', () => {
     expect(parsed.$schema).toBe('https://opencode.ai/config.json');
     expect(parsed.mcp['other-server']).toEqual({ url: 'http://other' });
     expect(parsed.mcp['agent4live-ableton'].url).toBe('http://fresh/mcp');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Windows. These are the scenarios that made auto-registration a silent no-op
+// before platform.js existed: the probe list had no executable suffix, so
+// claude.exe was never seen, and the fallback tried to spawn /bin/zsh.
+// ---------------------------------------------------------------------------
+describe('on Windows', () => {
+  onPlatform('win32');
+
+  const W = path.win32;
+  const TOKEN_HEX = 'a'.repeat(32);
+  const URL = 'http://127.0.0.1:1/mcp';
+
+  it('finds claude.exe under ~/.local/bin (the suffix-less name never matched)', () => {
+    const exe = W.join(HOME, '.local', 'bin', 'claude.exe');
+    fs.accessSync.mockImplementation((p) => {
+      if (String(p) === exe) return;
+      const err = new Error('ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    });
+    discovery.detectAgents();
+    expect(uiState.agents.claudeCode.detected).toBe(true);
+    expect(log).toHaveBeenCalledWith(`claude found at ${exe}`);
+  });
+
+  it('asks where.exe instead of spawning a POSIX login shell', () => {
+    const exe = 'C:\\tools\\gemini.exe';
+    cp.execFileSync.mockImplementation((bin, args) => {
+      if (bin !== 'where.exe') throw new Error(`unexpected spawn of ${bin}`);
+      // where.exe reports every PATH match, CRLF-terminated. Only `gemini`
+      // is on this machine's PATH.
+      if (args[0] !== 'gemini') throw new Error('INFO: Could not find files.');
+      return `${exe}\r\nC:\\other\\gemini.cmd\r\n`;
+    });
+    fs.accessSync.mockImplementation((p) => {
+      if (String(p) === exe) return;
+      const err = new Error('ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    });
+    discovery.detectAgents();
+    expect(uiState.agents.gemini.detected).toBe(true);
+    expect(log).toHaveBeenCalledWith(`gemini found at ${exe}`);
+    expect(cp.execFileSync).toHaveBeenCalledWith('where.exe', ['gemini'], expect.any(Object));
+  });
+
+  it('never touches the NVM layout (nvm-windows differs; where.exe covers it)', () => {
+    cp.execFileSync.mockImplementation(() => {
+      throw new Error('not found');
+    });
+    discovery.detectAgents();
+    expect(fs.readdirSync).not.toHaveBeenCalled();
+    expect(fs.readFileSync).not.toHaveBeenCalled();
+    expect(uiState.agents.claudeCode.detected).toBe(false);
+  });
+
+  it('runs an npm .cmd shim through a shell, with the Bearer header quoted', () => {
+    // Node refuses to spawn a batch file directly (EINVAL) and does no
+    // quoting under shell:true, so the header would otherwise arrive split
+    // at every space.
+    const shim = W.join(HOME, '.local', 'bin', 'claude.cmd');
+    fs.accessSync.mockImplementation((p) => {
+      if (String(p) === shim) return;
+      const err = new Error('ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    });
+    fs.existsSync.mockReturnValue(false);
+    fs.mkdirSync.mockImplementation(() => {});
+    fs.writeFileSync.mockImplementation(() => {});
+    cp.execFileSync.mockReturnValue('');
+
+    discovery.registerOne('claudeCode', URL, TOKEN_HEX);
+
+    expect(uiState.agents.claudeCode.registered).toBe(true);
+    const [file, args, opts] = cp.execFileSync.mock.calls.at(-1);
+    // No spaces in this path, so it needs no quoting — quoteWindowsArg only
+    // wraps what would otherwise be mis-split.
+    expect(file).toBe(shim);
+    expect(opts).toMatchObject({ shell: true });
+    expect(args).toContain(`"Authorization: Bearer ${TOKEN_HEX}"`);
+    // Argument-free tokens stay unquoted so the command line stays readable.
+    expect(args).toContain('mcp');
+    expect(args).toContain('add');
+  });
+
+  it('spawns a native .exe directly, with no shell', () => {
+    const exe = W.join(HOME, '.local', 'bin', 'claude.exe');
+    fs.accessSync.mockImplementation((p) => {
+      if (String(p) === exe) return;
+      const err = new Error('ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    });
+    fs.existsSync.mockReturnValue(false);
+    fs.mkdirSync.mockImplementation(() => {});
+    fs.writeFileSync.mockImplementation(() => {});
+    cp.execFileSync.mockReturnValue('');
+
+    discovery.registerOne('claudeCode', URL, TOKEN_HEX);
+
+    const [file, args, opts] = cp.execFileSync.mock.calls.at(-1);
+    expect(file).toBe(exe);
+    expect(opts.shell).toBeUndefined();
+    expect(args).toContain(`Authorization: Bearer ${TOKEN_HEX}`);
   });
 });
