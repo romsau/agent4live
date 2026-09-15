@@ -7,14 +7,23 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { isAlive } = require('./bridge');
+const { onPlatform } = require('../../../tools/test/with-platform');
 const extension = require('./install');
 
+// Every assertion below is a macOS expectation, so the platform is pinned for
+// the whole file and the expected paths are built with the posix flavour —
+// the same one install.js selects under that pin. That keeps this suite
+// byte-identical in meaning on a Windows checkout (it used to fail there),
+// and makes the Windows block at the bottom an addition rather than a
+// rewrite. See platform.test.js for the per-OS unit tests.
+onPlatform('darwin');
+
+const P = path.posix;
 const HOME = os.homedir();
-const DEFAULT_USER_LIB = path.join(HOME, 'Music', 'Ableton', 'User Library');
-const DEFAULT_REMOTE_SCRIPTS_DIR = path.join(DEFAULT_USER_LIB, 'Remote Scripts');
-const DEFAULT_SCRIPT_PY = path.join(DEFAULT_REMOTE_SCRIPTS_DIR, 'agent4live', '__init__.py');
-const DEFAULT_SCRIPT_PYC = path.join(DEFAULT_REMOTE_SCRIPTS_DIR, 'agent4live', '__init__.pyc');
-const ABLETON_PREFS_DIR = path.join(HOME, 'Library', 'Preferences', 'Ableton');
+const DEFAULT_USER_LIB = P.join(HOME, 'Music', 'Ableton', 'User Library');
+const DEFAULT_REMOTE_SCRIPTS_DIR = P.join(DEFAULT_USER_LIB, 'Remote Scripts');
+const DEFAULT_SCRIPT_PY = P.join(DEFAULT_REMOTE_SCRIPTS_DIR, 'agent4live', '__init__.py');
+const DEFAULT_SCRIPT_PYC = P.join(DEFAULT_REMOTE_SCRIPTS_DIR, 'agent4live', '__init__.pyc');
 
 // Helper: install a `fs.existsSync` mock that returns `true` only for paths
 // whose suffix matches one in `truePaths`. Default-true tests don't need
@@ -165,7 +174,7 @@ describe('resolveRemoteScriptsDir', () => {
     });
     // /Volumes/MISSING is unmounted → skip. ~/Music/Ableton is the default
     // parent and exists → use it.
-    fs.existsSync.mockImplementation((p) => p === path.join(HOME, 'Music', 'Ableton'));
+    fs.existsSync.mockImplementation((p) => p === P.join(HOME, 'Music', 'Ableton'));
     expect(extension.resolveRemoteScriptsDir()).toBe(DEFAULT_REMOTE_SCRIPTS_DIR);
   });
 
@@ -296,8 +305,8 @@ describe('installExtension', () => {
     );
     const customProjectPath = '/Volumes/SOUND/lib';
     const customRemoteScripts = '/Volumes/SOUND/lib/User Library/Remote Scripts';
-    const customScriptPy = path.join(customRemoteScripts, 'agent4live', '__init__.py');
-    const customScriptPyc = path.join(customRemoteScripts, 'agent4live', '__init__.pyc');
+    const customScriptPy = P.join(customRemoteScripts, 'agent4live', '__init__.py');
+    const customScriptPyc = P.join(customRemoteScripts, 'agent4live', '__init__.pyc');
     // Volume mounted (ProjectPath visible) + Remote Scripts dir already
     // exists → installExtension skips the mkdir of REMOTE_SCRIPTS_DIR but
     // still mkdir's the agent4live sub-folder.
@@ -311,9 +320,90 @@ describe('installExtension', () => {
   });
 });
 
-describe('module exports', () => {
-  it('exposes ABLETON_PREFS_DIR + DEFAULT_REMOTE_SCRIPTS_DIR for tooling', () => {
-    expect(extension.ABLETON_PREFS_DIR).toBe(ABLETON_PREFS_DIR);
-    expect(extension.DEFAULT_REMOTE_SCRIPTS_DIR).toBe(DEFAULT_REMOTE_SCRIPTS_DIR);
+// The ABLETON_PREFS_DIR / DEFAULT_REMOTE_SCRIPTS_DIR constants this file used
+// to assert on are gone: they can't be module-load constants any more now
+// that they depend on the OS. They live in platform.js as ablePrefsDir() and
+// defaultRemoteScriptsDir(), covered by platform.test.js.
+
+describe('on Windows', () => {
+  onPlatform('win32');
+
+  const W = path.win32;
+  const APPDATA = 'C:\\Users\\ASUS\\AppData\\Roaming';
+  const WIN_DEFAULT_REMOTE_SCRIPTS = W.join(
+    HOME,
+    'Documents',
+    'Ableton',
+    'User Library',
+    'Remote Scripts',
+  );
+
+  let prevAppData;
+  beforeEach(() => {
+    prevAppData = process.env.APPDATA;
+    process.env.APPDATA = APPDATA;
+  });
+  afterEach(() => {
+    if (prevAppData === undefined) delete process.env.APPDATA;
+    else process.env.APPDATA = prevAppData;
+  });
+
+  it('scans %APPDATA%\\Ableton for Library.cfg, not ~/Library/Preferences', () => {
+    fs.readdirSync.mockReturnValue([]);
+    extension.resolveRemoteScriptsDir();
+    expect(fs.readdirSync).toHaveBeenCalledWith(W.join(APPDATA, 'Ableton'));
+  });
+
+  it('falls back to ~\\Documents\\Ableton, never ~/Music (the macOS location)', () => {
+    fs.readdirSync.mockImplementation(() => {
+      const err = new Error('ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    });
+    const resolved = extension.resolveRemoteScriptsDir();
+    expect(resolved).toBe(WIN_DEFAULT_REMOTE_SCRIPTS);
+    expect(resolved).not.toMatch(/Music/);
+  });
+
+  it('accepts the drive-letter ProjectPath Live writes into Library.cfg', () => {
+    // Regression: the old guard was `projectPath.startsWith('/')`, which
+    // rejected every Windows path and silently fell through to the macOS
+    // default — the folder Live never scans.
+    fs.readFileSync.mockReturnValue(
+      '<UserLibrary><LibraryProject><ProjectName Value="User Library"/><ProjectPath Value="C:/Users/ASUS/Documents/Ableton"/></LibraryProject></UserLibrary>',
+    );
+    expect(extension._parseUserLibraryFromCfg('C:\\x\\Library.cfg')).toEqual({
+      projectPath: 'C:/Users/ASUS/Documents/Ableton',
+      projectName: 'User Library',
+    });
+  });
+
+  it('resolves the real Remote Scripts dir end-to-end from a Windows cfg', () => {
+    fs.readdirSync.mockReturnValue(['Live 12.0.20']);
+    fs.statSync.mockReturnValue({ mtimeMs: 1 });
+    fs.readFileSync.mockReturnValue(
+      '<UserLibrary><LibraryProject><ProjectName Value="User Library"/><ProjectPath Value="C:/Users/ASUS/Documents/Ableton"/></LibraryProject></UserLibrary>',
+    );
+    fs.existsSync.mockImplementation((p) => p === 'C:/Users/ASUS/Documents/Ableton');
+    expect(extension.resolveRemoteScriptsDir()).toBe(
+      W.join('C:/Users/ASUS/Documents/Ableton', 'User Library', 'Remote Scripts'),
+    );
+  });
+
+  it('installs the script under the Windows User Library', async () => {
+    fs.readdirSync.mockImplementation(() => {
+      const err = new Error('ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    });
+    fs.existsSync.mockReturnValue(true);
+    fs.mkdirSync.mockImplementation(() => {});
+    fs.writeFileSync.mockImplementation(() => {});
+    expect(await extension.installExtension('# py', new Uint8Array([1]))).toEqual({ ok: true });
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      W.join(WIN_DEFAULT_REMOTE_SCRIPTS, 'agent4live', '__init__.py'),
+      '# py',
+      'utf8',
+    );
   });
 });

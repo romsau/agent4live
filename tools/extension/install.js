@@ -4,12 +4,18 @@
 // Manual installer for the agent4live Python extension (POC phase 1).
 //
 // Copies app/python_scripts/ to the User Library Remote Scripts folder:
-//   ~/Music/Ableton/User Library/Remote Scripts/agent4live/
+//   macOS    ~/Music/Ableton/User Library/Remote Scripts/agent4live/
+//   Windows  %USERPROFILE%\Documents\Ableton\User Library\Remote Scripts\agent4live\
 //
 // This path was introduced in Live 10.1.13 and is the recommended location
 // (persists across Live versions, no per-version reinstall). The legacy
 // ~/Library/Preferences/Ableton/Live X.Y/User Remote Scripts/ no longer
 // works in recent Live 12 builds — empirically verified on 12.3.8.
+//
+// Unlike the device itself (app/server/extension/install.js), this dev-side
+// CLI uses the stock location rather than parsing Library.cfg — it does no
+// fs work at require time, which keeps it cheap to test. If you relocated
+// your User Library, install through the device UI instead.
 //
 // Usage:
 //   node tools/extension/install.js
@@ -20,9 +26,11 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 
+const { defaultRemoteScriptsDir, platformPath } = require('../../app/server/platform');
+
 const SRC = path.resolve(__dirname, '..', '..', 'app', 'python_scripts');
-const USER_LIBRARY = path.join(os.homedir(), 'Music', 'Ableton', 'User Library');
-const REMOTE_SCRIPTS_DIR = path.join(USER_LIBRARY, 'Remote Scripts');
+const REMOTE_SCRIPTS_DIR = defaultRemoteScriptsDir();
+const USER_LIBRARY = platformPath().dirname(REMOTE_SCRIPTS_DIR);
 const SCRIPT_NAME = 'agent4live';
 const TARGET = path.join(REMOTE_SCRIPTS_DIR, SCRIPT_NAME);
 
