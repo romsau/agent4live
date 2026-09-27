@@ -220,6 +220,7 @@ function _drumPadPath(track, devIdx, padIdx) {
   return _rackPath(track, devIdx) + ' drum_pads ' + parseInt(padIdx);
 }
 
+
 // ━━━ from 10_dispatch.js ━━━
 
 // AUTO-AUTHORED — this file is one of several concatenated at build
@@ -352,6 +353,7 @@ function lom_session_state(id) {
     });
   });
 }
+
 
 // ━━━ from 20_clips.js ━━━
 
@@ -812,6 +814,7 @@ function lom_get_warp_markers(id, trackIndex, slotIndex) {
   });
 }
 
+
 // ━━━ from 30_devices.js ━━━
 
 // AUTO-AUTHORED — this file is one of several concatenated at build
@@ -1092,6 +1095,7 @@ function lom_select_device(id, trackIndex, deviceIndex) {
     return 'done';
   });
 }
+
 
 // ━━━ from 40_racks.js ━━━
 
@@ -1543,6 +1547,7 @@ function lom_set_drum_chain_props(
   });
 }
 
+
 // ━━━ from 50_observers.js ━━━
 
 // AUTO-AUTHORED — this file is one of several concatenated at build
@@ -1695,6 +1700,7 @@ function lom_unobserve(id, observerId) {
   });
 }
 
+
 // ━━━ from 60_routing.js ━━━
 
 // AUTO-AUTHORED — this file is one of several concatenated at build
@@ -1810,6 +1816,7 @@ function lom_get_track_routing(id, trackIndex, side) {
     });
   });
 }
+
 
 // ━━━ from 70_session.js ━━━
 
@@ -2137,3 +2144,4 @@ function lom_get_control_surface_controls(id, surfaceIndex) {
     );
   });
 }
+

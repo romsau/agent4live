@@ -51,8 +51,27 @@ const { getExtensionStatus, installExtension } = require('./extension/install');
 // to the User Library at install time without ever asking the user for
 // python3.11. The .py is text (debug + diffability), the .pyc is the binary
 // Live 12 actually loads (compiled by tools/build/compile-extension-pyc.js).
-const EXTENSION_PY_SOURCE = require('../python_scripts/__init__.py');
-const EXTENSION_PYC_BYTES = require('../python_scripts/__init__.pyc');
+// Loaded lazily (not at module top-level): in dev mode the .pyc is a
+// gitignored build artifact that doesn't exist until `npm run build` has run
+// once, so requiring it eagerly would crash boot for anyone who drags the
+// source .amxd onto a track before their first build. esbuild still finds
+// these require() calls statically and inlines them into the frozen bundle
+// regardless of where in the file they sit.
+let extensionFiles;
+/**
+ * Lazily require + memoize the bundled Python extension source and bytecode.
+ *
+ * @returns {{ py: string, pyc: Buffer }}
+ */
+function loadExtensionFiles() {
+  if (!extensionFiles) {
+    extensionFiles = {
+      py: require('../python_scripts/__init__.py'),
+      pyc: require('../python_scripts/__init__.pyc'),
+    };
+  }
+  return extensionFiles;
+}
 const { lomGet, lomScanPeers } = require('./lom');
 const { handleMCP } = require('./mcp/server');
 const { rejectIfNonLocalOrigin } = require('./security/auth');
@@ -409,7 +428,8 @@ async function updateExtensionStatus() {
  * @param {http.ServerResponse} res
  */
 async function handleExtensionInstall(res) {
-  const result = await installExtension(EXTENSION_PY_SOURCE, EXTENSION_PYC_BYTES);
+  const { py, pyc } = loadExtensionFiles();
+  const result = await installExtension(py, pyc);
   // Refresh status either way so the UI reflects the new state.
   const status = await updateExtensionStatus();
   res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'application/json' });

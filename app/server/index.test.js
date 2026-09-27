@@ -845,6 +845,19 @@ describe('Extension endpoints', () => {
     expect(body.status).toEqual({ scriptInstalled: true, pingOk: false });
   });
 
+  it('POST /extension/install reuses the extension files on a second call (memoized)', async () => {
+    const { mocks, handler } = bootAndGetHandler();
+    mocks.installExtension.mockResolvedValue({ ok: true });
+    mocks.getExtensionStatus.mockResolvedValue({ scriptInstalled: true, pingOk: false });
+    handler(...Object.values(reqres('/extension/install', 'POST')));
+    await flush();
+    handler(...Object.values(reqres('/extension/install', 'POST')));
+    await flush();
+    expect(mocks.installExtension).toHaveBeenCalledTimes(2);
+    expect(mocks.installExtension).toHaveBeenNthCalledWith(1, 'PY_SOURCE_FAKE', expect.any(Buffer));
+    expect(mocks.installExtension).toHaveBeenNthCalledWith(2, 'PY_SOURCE_FAKE', expect.any(Buffer));
+  });
+
   it('POST /extension/install returns 500 + error message when install fails', async () => {
     const { mocks, handler } = bootAndGetHandler();
     mocks.installExtension.mockResolvedValue({
