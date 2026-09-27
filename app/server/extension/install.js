@@ -18,24 +18,24 @@
 // hardcoded — a user who relocated their User Library to an external drive
 // (common on Macs with small internal SSDs) would otherwise have us write
 // to ~/Music/Ableton/User Library/... while Live scans Remote Scripts
-// somewhere else entirely. The cfg parser falls back to the macOS default
+// somewhere else entirely. The cfg parser falls back to the platform default
 // when no Live preferences are readable.
+//
+// Both the preferences directory that holds those cfg files and the
+// fallback default differ per OS (macOS ~/Library/Preferences/Ableton and
+// ~/Music/..., Windows %APPDATA%\Ableton and ~\Documents\...) — see
+// app/server/platform.js, which owns every such answer.
 
 const fs = require('fs');
-const path = require('path');
-const os = require('os');
 
 const { isAlive } = require('./bridge');
 const { auditLog } = require('../security/audit');
-
-const ABLETON_PREFS_DIR = path.join(os.homedir(), 'Library', 'Preferences', 'Ableton');
-const DEFAULT_REMOTE_SCRIPTS_DIR = path.join(
-  os.homedir(),
-  'Music',
-  'Ableton',
-  'User Library',
-  'Remote Scripts',
-);
+const {
+  ablePrefsDir,
+  defaultRemoteScriptsDir,
+  isAbsolutePath,
+  platformPath,
+} = require('../platform');
 
 /**
  * Parse a Library.cfg XML file to extract Live's User Library config. The cfg
@@ -60,7 +60,9 @@ function _parseUserLibraryFromCfg(cfgPath) {
   const m = content.match(/<UserLibrary>[\s\S]*?<ProjectPath\s+Value="([^"]+)"/);
   if (!m) return null;
   const projectPath = m[1];
-  if (!projectPath.startsWith('/')) return null;
+  // Live writes this with forward slashes on both platforms ("C:/Users/..."
+  // on Windows) — isAbsolutePath() accepts either form.
+  if (!isAbsolutePath(projectPath)) return null;
   const nameMatch = content.match(/<UserLibrary>[\s\S]*?<ProjectName\s+Value="([^"]+)"/);
   const projectName = nameMatch ? nameMatch[1] : 'User Library';
   return { projectPath, projectName };
@@ -68,9 +70,9 @@ function _parseUserLibraryFromCfg(cfgPath) {
 
 /**
  * Resolve the Remote Scripts directory by reading Live's actual User Library
- * config. Scans `~/Library/Preferences/Ableton/Live X.Y/Library.cfg`, picks
- * the most recently modified one (most recently launched Live), and returns
- * `<ProjectPath>/<ProjectName>/Remote Scripts`. Falls back to the macOS
+ * config. Scans `<ablePrefsDir()>/Live X.Y/Library.cfg`, picks the most
+ * recently modified one (most recently launched Live), and returns
+ * `<ProjectPath>/<ProjectName>/Remote Scripts`. Falls back to the platform
  * default when no cfg yields a ProjectPath reachable on disk (e.g. external
  * volume not mounted, no Live ever launched on this machine).
  *
@@ -83,17 +85,19 @@ function _parseUserLibraryFromCfg(cfgPath) {
  * @returns {string} Absolute path to the Remote Scripts directory.
  */
 function resolveRemoteScriptsDir() {
+  const p = platformPath();
+  const prefsDir = ablePrefsDir();
   let entries;
   try {
-    entries = fs.readdirSync(ABLETON_PREFS_DIR);
+    entries = fs.readdirSync(prefsDir);
   } catch (_) {
-    return DEFAULT_REMOTE_SCRIPTS_DIR;
+    return defaultRemoteScriptsDir();
   }
 
   const candidates = [];
   for (const entry of entries) {
     if (!entry.startsWith('Live ')) continue;
-    const cfgPath = path.join(ABLETON_PREFS_DIR, entry, 'Library.cfg');
+    const cfgPath = p.join(prefsDir, entry, 'Library.cfg');
     try {
       const stat = fs.statSync(cfgPath);
       candidates.push({ cfgPath, mtimeMs: stat.mtimeMs });
@@ -107,11 +111,11 @@ function resolveRemoteScriptsDir() {
   for (const { cfgPath } of candidates) {
     const parsed = _parseUserLibraryFromCfg(cfgPath);
     if (parsed && fs.existsSync(parsed.projectPath)) {
-      return path.join(parsed.projectPath, parsed.projectName, 'Remote Scripts');
+      return p.join(parsed.projectPath, parsed.projectName, 'Remote Scripts');
     }
   }
 
-  return DEFAULT_REMOTE_SCRIPTS_DIR;
+  return defaultRemoteScriptsDir();
 }
 
 /**
@@ -122,13 +126,14 @@ function resolveRemoteScriptsDir() {
  * @returns {{ scriptDir: string, scriptPy: string, scriptPyc: string, remoteScriptsDir: string }}
  */
 function _resolvePaths() {
+  const p = platformPath();
   const remoteScriptsDir = resolveRemoteScriptsDir();
-  const scriptDir = path.join(remoteScriptsDir, 'agent4live');
+  const scriptDir = p.join(remoteScriptsDir, 'agent4live');
   return {
     remoteScriptsDir,
     scriptDir,
-    scriptPy: path.join(scriptDir, '__init__.py'),
-    scriptPyc: path.join(scriptDir, '__init__.pyc'),
+    scriptPy: p.join(scriptDir, '__init__.py'),
+    scriptPyc: p.join(scriptDir, '__init__.pyc'),
   };
 }
 
@@ -177,8 +182,6 @@ async function installExtension(pySource, pycBytes) {
 }
 
 module.exports = {
-  ABLETON_PREFS_DIR,
-  DEFAULT_REMOTE_SCRIPTS_DIR,
   resolveRemoteScriptsDir,
   getExtensionStatus,
   installExtension,

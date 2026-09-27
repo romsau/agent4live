@@ -49,7 +49,7 @@ Le pre-commit hook fait passer `@commitlint/config-conventional` sur le message.
 
 Pour valider le parcours d'onboarding "premier drop sur la piste Master, jamais utilisé agent4live avant", il faut un état système vraiment vierge — pas juste effacer `preferences.json`. Sinon le device saute Modal A (extension déjà installé), saute la migration silencieuse (entrée `.claude.json` toujours là), et l'expérience testée n'est pas celle d'un nouveau user.
 
-**Procédure canonique** (à exécuter Live device fermé / serveur :19845 down) :
+**Procédure canonique** (à exécuter Live device fermé / serveur :19845 down). Les chemins ci-dessous sont ceux de macOS ; sur Windows, `~/Music/Ableton/User Library` devient `%USERPROFILE%\Documents\Ableton\User Library` et le binaire `claude` est `claude.exe` — le reste (`~/.claude/skills`, `~/.agent4live-ableton-mcp`) est identique.
 
 ```bash
 ~/.local/bin/claude mcp remove agent4live-ableton-mcp --scope user 2>&1

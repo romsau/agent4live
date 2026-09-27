@@ -24,6 +24,14 @@ const {
 } = require('../config');
 const { uiState, log } = require('../ui/state');
 const { SKILL_FILE_BODY } = require('../skill');
+const {
+  binCandidates,
+  nvmPaths,
+  nvmBinPath,
+  whichCommand,
+  parseWhichOutput,
+  spawnFor,
+} = require('../platform');
 
 const OPENCODE_CONFIG = path.join(os.homedir(), '.config', 'opencode', 'opencode.json');
 const ENDPOINT_DIR = path.join(os.homedir(), '.agent4live-ableton-mcp');
@@ -201,30 +209,33 @@ function registerWithClaude(url, token) {
     return;
   }
   if (existingClaude) {
+    const rm = spawnFor(claudeBin, ['mcp', 'remove', SERVER_NAME, '--scope', 'user']);
     try {
-      execFileSync(claudeBin, ['mcp', 'remove', SERVER_NAME, '--scope', 'user'], {
+      execFileSync(rm.file, rm.args, {
         stdio: 'ignore',
         timeout: SUBPROCESS_TIMEOUT_MS,
+        ...rm.options,
       });
     } catch (_) {}
   }
+  const add = spawnFor(claudeBin, [
+    'mcp',
+    'add',
+    SERVER_NAME,
+    '--transport',
+    'http',
+    url,
+    '--scope',
+    'user',
+    '--header',
+    headerValue,
+  ]);
   try {
-    execFileSync(
-      claudeBin,
-      [
-        'mcp',
-        'add',
-        SERVER_NAME,
-        '--transport',
-        'http',
-        url,
-        '--scope',
-        'user',
-        '--header',
-        headerValue,
-      ],
-      { stdio: 'ignore', timeout: SUBPROCESS_TIMEOUT_MS },
-    );
+    execFileSync(add.file, add.args, {
+      stdio: 'ignore',
+      timeout: SUBPROCESS_TIMEOUT_MS,
+      ...add.options,
+    });
     uiState.agents.claudeCode.registered = true;
     log('Auto-registered with Claude Code (with auth)');
   } catch (err) {
@@ -319,7 +330,9 @@ async function teardownDiscovery() {
 
 /**
  * Promise wrapper around execFile with a default 5s timeout. Resolves with
- * stdout (utf8), rejects with the underlying execFile error.
+ * stdout (utf8), rejects with the underlying execFile error. Goes through
+ * platform.js#spawnFor so Windows .cmd/.bat shims (npm-installed CLIs) are
+ * run via a shell instead of failing with EINVAL.
  *
  * @param {string} binaryPath
  * @param {string[]} args
@@ -327,11 +340,12 @@ async function teardownDiscovery() {
  * @returns {Promise<string>}
  */
 function runCmd(binaryPath, args, opts) {
+  const spawn = spawnFor(binaryPath, args);
   return new Promise((resolve, reject) => {
     execFile(
-      binaryPath,
-      args,
-      { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8', ...opts },
+      spawn.file,
+      spawn.args,
+      { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8', ...spawn.options, ...opts },
       (err, stdout) => {
         if (err) reject(err);
         else resolve(stdout || '');
@@ -342,8 +356,8 @@ function runCmd(binaryPath, args, opts) {
 
 /**
  * Find a CLI binary by name. Probes well-known install locations first
- * (Node-for-Max inherits a minimal PATH), then falls back to asking the
- * user's login shell — picks up custom paths from .zshrc / asdf / mise / etc.
+ * (Node-for-Max inherits a minimal PATH), then falls back to asking the OS
+ * (`command -v` via the login shell on POSIX, `where.exe` on Windows).
  *
  * @param {string} name - CLI binary name (e.g. "claude", "gemini").
  * @returns {string|null} Absolute path to the binary, or null if not found.
@@ -352,26 +366,28 @@ function runCmd(binaryPath, args, opts) {
  * Build the list of NVM-managed candidate paths for a binary name. Reads
  * `~/.nvm/alias/default` to prioritize the user's default Node version,
  * then enumerates every other installed version under
- * `~/.nvm/versions/node/`. Returns an empty array if NVM isn't installed
- * or the directories aren't readable.
+ * `~/.nvm/versions/node/`. Returns an empty array if NVM isn't installed,
+ * the directories aren't readable, or the platform has no NVM layout we
+ * probe (Windows — see platform.js#nvmPaths).
  *
  * @param {string} name
  * @returns {string[]}
  */
 function _nvmCandidates(name) {
-  const nvmRoot = path.join(os.homedir(), '.nvm', 'versions', 'node');
-  const aliasFile = path.join(os.homedir(), '.nvm', 'alias', 'default');
+  const paths = nvmPaths();
+  if (!paths) return [];
+  const { versionsDir: nvmRoot, aliasFile } = paths;
   const result = [];
   let defaultVer = null;
   try {
     const content = fs.readFileSync(aliasFile, 'utf8').trim();
     defaultVer = content.startsWith('v') ? content : `v${content}`;
-    result.push(path.join(nvmRoot, defaultVer, 'bin', name));
+    result.push(nvmBinPath(nvmRoot, defaultVer, name));
   } catch (_) {}
   try {
     for (const dir of fs.readdirSync(nvmRoot)) {
       if (dir !== defaultVer) {
-        result.push(path.join(nvmRoot, dir, 'bin', name));
+        result.push(nvmBinPath(nvmRoot, dir, name));
       }
     }
   } catch (_) {}
@@ -392,38 +408,39 @@ function resolveBin(name) {
   // boot can exceed SUBPROCESS_TIMEOUT_MS when the OS hasn't warmed the
   // binary yet, leaving the agent silently undetected).
   //
-  // Includes NVM-installed paths because the shell fallback `zsh -lc` doesn't
-  // load `.zshrc` (only `.zprofile`/`.zlogin`), and NVM's PATH wiring lives
-  // in `.zshrc`. So when Live is launched from launchd (no inherited PATH),
-  // `command -v gemini` returns nothing even though the binary is on disk.
-  const candidates = [
-    path.join(os.homedir(), '.local', 'bin', name),
-    path.join(os.homedir(), '.opencode', 'bin', name),
-    path.join(os.homedir(), '.bun', 'bin', name),
-    path.join(os.homedir(), '.npm-global', 'bin', name),
-    path.join(os.homedir(), '.cargo', 'bin', name),
-    `/usr/local/bin/${name}`,
-    `/opt/homebrew/bin/${name}`,
-    ..._nvmCandidates(name),
-  ];
+  // The candidate list (and the Windows .exe/.cmd suffixes) comes from
+  // platform.js. It includes NVM-installed paths on POSIX because the shell
+  // fallback `zsh -lc` doesn't load `.zshrc` (only `.zprofile`/`.zlogin`),
+  // and NVM's PATH wiring lives in `.zshrc`. So when Live is launched from
+  // launchd (no inherited PATH), `command -v gemini` returns nothing even
+  // though the binary is on disk.
+  //
+  // Note on X_OK: Windows has no execute bit, and Node documents X_OK there
+  // as equivalent to F_OK. That's exactly what we want — the candidate list
+  // is already restricted to executable suffixes, so mere existence is the
+  // right test.
+  const candidates = [...binCandidates(name), ..._nvmCandidates(name)];
   for (const candidate of candidates) {
     try {
       fs.accessSync(candidate, fs.constants.X_OK);
       return candidate;
     } catch (_) {}
   }
-  // Fallback: ask the user's login shell — picks up custom paths from .zshrc
-  // / asdf / mise / etc. The shell call itself is cheap (<200ms) compared to
-  // spawning the target binary, so the timeout here is rarely a concern.
+  // Fallback: ask the OS. On POSIX that's the user's login shell, which picks
+  // up custom paths from .zshrc / asdf / mise / etc. On Windows it's
+  // `where.exe`, which searches the inherited registry PATH and therefore
+  // covers winget / scoop / Chocolatey shims. Either call is cheap (<200ms)
+  // compared to spawning the target binary, so the timeout rarely matters.
   try {
-    const shell = process.env.SHELL || '/bin/zsh';
-    const output = execFileSync(shell, ['-lc', `command -v ${name}`], {
+    const { file, args } = whichCommand(name);
+    const output = execFileSync(file, args, {
       encoding: 'utf8',
       timeout: SUBPROCESS_TIMEOUT_MS,
-    }).trim();
-    if (output && output.startsWith('/')) {
-      fs.accessSync(output, fs.constants.X_OK);
-      return output;
+    });
+    const resolved = parseWhichOutput(output);
+    if (resolved) {
+      fs.accessSync(resolved, fs.constants.X_OK);
+      return resolved;
     }
   } catch (_) {}
   return null;

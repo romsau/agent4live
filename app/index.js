@@ -21,5 +21,16 @@ require.extensions['.html'] = function (mod, filename) {
 require.extensions['.md'] = function (mod, filename) {
   mod.exports = require('fs').readFileSync(filename, 'utf8');
 };
+// Same deal for the Python extension files that server/index.js requires.
+// Without these, dev mode can't boot at all: Node has no handler for an
+// unknown extension, so it falls back to the .js loader and tries to PARSE
+// the Python source as JavaScript ("SyntaxError: Unexpected string").
+// Mirrors esbuild's loaders exactly — `.py` is text, `.pyc` is binary.
+require.extensions['.py'] = function (mod, filename) {
+  mod.exports = require('fs').readFileSync(filename, 'utf8');
+};
+require.extensions['.pyc'] = function (mod, filename) {
+  mod.exports = require('fs').readFileSync(filename);
+};
 
 require('./server');

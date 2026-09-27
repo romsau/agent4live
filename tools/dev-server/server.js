@@ -34,6 +34,12 @@ const WRAPPER = path.join(HERE, 'wrapper.html');
 /**
  * Install the .html require hook + max-api stub. Both are mutations of the
  * Node module loader — guard with a flag so re-imports during tests stay idempotent.
+ *
+ * No `.py`/`.pyc` hooks here (unlike app/index.js's trampoline): this dev
+ * server only ever requires app/server/ui/state.js and fixtures.js, never
+ * anything that reaches app/python_scripts/. Add them here too if that
+ * require chain ever grows to touch python_scripts, or requiring it will
+ * throw the same "SyntaxError: Unexpected string" the trampoline hooks fix.
  */
 function installModuleHooks() {
   if (!installModuleHooks.installed) {

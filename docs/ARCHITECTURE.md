@@ -81,7 +81,9 @@ agent4live/                (repo root)
 
 Max for Live charge `node.script` et `[js]` via un **file finder à plat** : aucun ne descend dans les sous-dossiers du patch. Si on disait `node.script server/index.js`, Max ne trouverait pas le fichier.
 
-Solution : le trampoline `app/index.js` reste à plat à côté du `.amxd`, installe un hook `require.extensions['.html']` (pour le dev mode) et fait `require('./server')`. Une fois dans `app/server/`, Node résout les sous-dossiers normalement.
+Solution : le trampoline `app/index.js` reste à plat à côté du `.amxd`, installe les hooks `require.extensions` du dev mode (`.html`, `.md`, `.py`, `.pyc` — un par loader esbuild) et fait `require('./server')`. Une fois dans `app/server/`, Node résout les sous-dossiers normalement.
+
+> Les hooks `.py` / `.pyc` sont indispensables : Node n'a pas de handler pour une extension inconnue et retombe sur le loader `.js`, donc sans eux il essaie de **parser le source Python comme du JavaScript** et le dev mode ne boote pas du tout. En prod, esbuild a déjà inliné ces requires — les hooks sont alors des no-ops.
 
 `esbuild` part de `app/index.js` et inline tout le `require()` chain (server/\* + SDK MCP + active/passive.html via le text loader) dans un bundle CJS unique.
 
